@@ -7,7 +7,7 @@
 | **Υπεύθυνος** | Μιχάλης Κατσιρντάκης |
 | **Τηλέφωνο** | 2310 954145 |
 | **Email** | itdipea@sch.gr |
-| **Έκδοση** | 0.9.0 (beta) — Απρίλιος 2026 |
+| **Έκδοση** | beta — Απρίλιος 2026 |
 
 ---
 
@@ -17,9 +17,9 @@
 
 ## ⬇️ Λήψη & Εγκατάσταση
 
-**[→ Κατέβασε το MySchool Checks v0.9.0](https://github.com/MichalisKat/myschool-checks/releases/latest)**
+**[→ Κατέβασε την τελευταία έκδοση](https://github.com/MichalisKat/myschool-checks/releases/latest)**
 
-1. Κατέβασε το `myschool-checks-0.9.0-setup.exe`
+1. Κατέβασε το `myschool-checks-setup.exe`
 2. Τρέξε το — εγκαθίσταται αυτόματα
 3. Ανοίγει από το **Desktop shortcut** ή το **Start Menu**
 
