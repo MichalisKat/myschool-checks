@@ -296,7 +296,7 @@ class SettingsDialog(tk.Toplevel):
         self.grab_set()
         self.transient(parent)
 
-        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '8ball.ico')
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
             try: self.iconbitmap(ico)
             except Exception: pass
@@ -563,7 +563,7 @@ class DownloadDialog(tk.Toplevel):
         self.grab_set()
         self.transient(parent)
 
-        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '8ball.ico')
+        ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(ico):
             try: self.iconbitmap(ico)
             except Exception: pass
@@ -772,6 +772,18 @@ class LauncherApp:
         self._poll_status()
         # Σύνδεση stdout με status bar
         _gui_stream.set_callback(self._on_print)
+
+        # Έλεγχος για νέα έκδοση (background, αθόρυβος — 3s μετά την εκκίνηση)
+        def _on_update(new_ver, dl_url):
+            def _show():
+                self._set_status(
+                    f'⬆  Διαθέσιμη νέα έκδοση v{new_ver} — κλικ για ενημέρωση',
+                    C['status_run'])
+                self.status_lbl.configure(cursor='hand2')
+                self.status_lbl.bind('<Button-1>',
+                    lambda e: _do_update(self.root, new_ver, dl_url))
+            self.root.after(0, _show)
+        root.after(3000, lambda: _check_for_update(_on_update))
 
         # Αν δεν έχει οριστεί κωδικός, άνοιξε αυτόματα τις ρυθμίσεις
         if not password_is_set():
@@ -1058,7 +1070,7 @@ class LauncherApp:
         win.resizable(True, True)
         win.grab_set()
         win.attributes('-topmost', True)
-        _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '8ball.ico')
+        _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
         if os.path.exists(_ico):
             try: win.iconbitmap(_ico)
             except Exception: pass
@@ -1151,6 +1163,115 @@ class LauncherApp:
         self.status_var.set(text)
         if color:
             self.status_lbl.configure(fg=color)
+
+
+def _check_for_update(on_update_available):
+    """Ελέγχει αν υπάρχει νεότερη έκδοση στο GitHub. Τρέχει σε background thread.
+    Αν βρεθεί νεότερη, καλεί on_update_available(new_version, download_url)."""
+    def _task():
+        try:
+            import urllib.request, json as _json
+            api_url = 'https://api.github.com/repos/MichalisKat/myschool-checks/releases/latest'
+            req = urllib.request.Request(api_url, headers={'User-Agent': 'MySchoolChecks'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read().decode())
+            latest = data.get('tag_name', '').lstrip('v')
+            if not latest:
+                return
+            current = getattr(config, 'APP_VERSION', '0.0.0')
+            def _ver(s):
+                try: return tuple(int(x) for x in s.split('.'))
+                except: return (0,)
+            if _ver(latest) > _ver(current):
+                # Βρες το .exe asset
+                assets = data.get('assets', [])
+                dl_url = next(
+                    (a['browser_download_url'] for a in assets
+                     if a['name'].endswith('.exe')),
+                    None)
+                if dl_url:
+                    on_update_available(latest, dl_url)
+        except Exception:
+            pass  # Αθόρυβη αποτυχία — δεν επηρεάζει τη λειτουργία
+    threading.Thread(target=_task, daemon=True).start()
+
+
+def _do_update(parent, new_ver, dl_url):
+    """Κατεβάζει το νέο setup.exe και το εκτελεί. Εμφανίζει progress dialog."""
+    import urllib.request, tempfile, subprocess as _sub
+
+    # Ερώτηση επιβεβαίωσης
+    answer = messagebox.askyesno(
+        'Διαθέσιμη ενημέρωση',
+        f'Διαθέσιμη νέα έκδοση v{new_ver}!\n\n'
+        f'Θέλεις να κατεβάσεις και να εγκαταστήσεις τώρα;\n\n'
+        f'Η εφαρμογή θα κλείσει αυτόματα για την εγκατάσταση.',
+        parent=parent)
+    if not answer:
+        return
+
+    # Progress dialog
+    dlg = tk.Toplevel(parent)
+    dlg.title('Λήψη ενημέρωσης')
+    dlg.configure(bg=C['bg'])
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    dlg.transient(parent)
+
+    tk.Label(dlg, text=f'Λήψη MySchool Checks v{new_ver}...',
+             bg=C['bg'], fg=C['hdr_bg'],
+             font=('Arial', 10, 'bold')).pack(padx=24, pady=(18, 6))
+
+    from tkinter import ttk as _ttk
+    pb = _ttk.Progressbar(dlg, length=320, mode='determinate')
+    pb.pack(padx=24, pady=(0, 6))
+
+    status_var = tk.StringVar(value='Σύνδεση...')
+    tk.Label(dlg, textvariable=status_var,
+             bg=C['bg'], fg=C['footer'],
+             font=('Arial', 8)).pack(padx=24, pady=(0, 18))
+
+    dlg.update_idletasks()
+    px = parent.winfo_x() + (parent.winfo_width()  - dlg.winfo_width())  // 2
+    py = parent.winfo_y() + (parent.winfo_height() - dlg.winfo_height()) // 2
+    dlg.geometry(f'+{px}+{py}')
+
+    def _download():
+        try:
+            tmp_dir  = tempfile.mkdtemp()
+            fname    = f'myschool-checks-{new_ver}-setup.exe'
+            tmp_path = os.path.join(tmp_dir, fname)
+
+            def _reporthook(count, block_size, total_size):
+                if total_size > 0:
+                    pct = min(100, int(count * block_size * 100 / total_size))
+                    mb_done = count * block_size / 1_048_576
+                    mb_total = total_size / 1_048_576
+                    dlg.after(0, lambda p=pct, d=mb_done, t=mb_total: [
+                        pb.configure(value=p),
+                        status_var.set(f'{d:.1f} / {t:.1f} MB  ({p}%)')])
+
+            urllib.request.urlretrieve(dl_url, tmp_path, _reporthook)
+
+            # Κατεβάστηκε — εκτέλεση
+            dlg.after(0, lambda: [
+                status_var.set('Εκκίνηση εγκατάστασης...'),
+                dlg.update()])
+            import time as _t; _t.sleep(0.8)
+
+            _sub.Popen([tmp_path], shell=False)
+            dlg.after(0, lambda: [dlg.destroy(), parent.destroy()])
+
+        except Exception as e:
+            dlg.after(0, lambda err=str(e): [
+                dlg.destroy(),
+                messagebox.showerror('Σφάλμα λήψης',
+                    f'Δεν ήταν δυνατή η λήψη:\n{err}\n\n'
+                    'Κατέβασέ την χειροκίνητα από:\n'
+                    'github.com/MichalisKat/myschool-checks/releases',
+                    parent=parent)])
+
+    threading.Thread(target=_download, daemon=True).start()
 
 
 def _show_help(parent):
@@ -1289,7 +1410,7 @@ def main():
     root = tk.Tk()
     root.withdraw()
 
-    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), '8ball.ico')
+    ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.ico')
     if os.path.exists(ico):
         try: root.iconbitmap(ico)
         except Exception: pass

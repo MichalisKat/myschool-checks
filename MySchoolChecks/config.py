@@ -4,6 +4,9 @@
 # Μη-ευαίσθητες ρυθμίσεις: data/local_settings.json (gitignored)
 # Ευαίσθητα credentials: Windows Credential Manager μέσω keyring (encryption.py)
 
+# ── Έκδοση εφαρμογής ──────────────────────────────────────────────────────
+APP_VERSION = '0.9.1'
+
 # ── MySchool credentials (κενά — συμπληρώνονται από Ρυθμίσεις) ────────────
 MYSCHOOL_USER = ''
 MYSCHOOL_PASS = ''
