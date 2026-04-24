@@ -1,8 +1,8 @@
 ; ============================================================
 ; myschool-checks.nsi
-; NSIS Installer Script - MySchool Checks 1.0
+; NSIS Installer Script - MySchool Checks 0.9.0
 ; Compile: makensis myschool-checks.nsi
-; Output:  myschool-checks-1.0-setup.exe
+; Output:  myschool-checks-0.9.0-setup.exe
 ; ============================================================
 
 Unicode True
@@ -11,11 +11,11 @@ SetCompressorDictSize 64
 
 ; --- Metadata ---
 !define APP_NAME      "MySchool Checks"
-!define APP_VERSION   "1.0"
+!define APP_VERSION   "0.9.0"
 !define APP_PUBLISHER "Michalis Katsirintakis"
 !define APP_URL       "https://github.com/mkatsirntakis/myschool-checks"
 !define APP_EXE       "MySchoolChecks.exe"
-!define APP_ICON      "MySchoolChecks\8ball.ico"
+!define APP_ICON      "MySchoolChecks\app.ico"
 !define INSTALL_DIR   "$PROGRAMFILES64\MySchoolChecks"
 !define REG_KEY       "Software\Microsoft\Windows\CurrentVersion\Uninstall\MySchoolChecks"
 !define SETUP_EXE     "myschool-checks-${APP_VERSION}-setup.exe"
@@ -148,7 +148,7 @@ Section "Uninstall"
 
     Delete "$INSTDIR\${APP_EXE}"
     Delete "$INSTDIR\startup.mp3"
-    Delete "$INSTDIR\8ball.ico"
+    Delete "$INSTDIR\app.ico"
     Delete "$INSTDIR\MySchoolChecks_Odigos.pdf"
     Delete "$INSTDIR\Uninstall.exe"
 
