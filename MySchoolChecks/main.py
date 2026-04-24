@@ -1385,7 +1385,8 @@ def _do_update(parent, new_ver, dl_url):
                 dlg.update()])
             import time as _t; _t.sleep(0.8)
 
-            _sub.Popen([tmp_path], shell=False)
+            import ctypes
+            ctypes.windll.shell32.ShellExecuteW(None, 'runas', tmp_path, None, None, 1)
             dlg.after(0, lambda: [dlg.destroy(), parent.destroy()])
 
         except Exception as e:
