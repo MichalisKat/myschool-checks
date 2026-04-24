@@ -37,6 +37,16 @@ def _app_base():
             return data_dir
         return exe_dir
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def _docs_base():
+    """Επιστρέφει τον φάκελο Documents\MySchoolChecks — κοινός για downloads και results.
+    Εύκολος στην πρόσβαση από τον χρήστη.
+    """
+    _docs = os.path.join(os.path.expanduser('~'), 'Documents')
+    path  = os.path.join(_docs, 'MySchoolChecks')
+    os.makedirs(path, exist_ok=True)
+    return path
 import tkinter as tk
 from tkinter import messagebox
 
@@ -181,9 +191,15 @@ def load_checks():
 
 
 def password_is_set():
-    """Ελέγχει αν ο κωδικός email έχει οριστεί."""
-    pw = getattr(config, 'FROM_PASSWORD', '')
-    return bool(pw)
+    """Ελέγχει αν ο κωδικός email έχει οριστεί (keyring ή config)."""
+    try:
+        import keyring
+        val = keyring.get_password('MySchoolChecks', 'FROM_PASSWORD')
+        if val:
+            return True
+    except Exception:
+        pass
+    return bool(getattr(config, 'FROM_PASSWORD', ''))
 
 
 def _get_local_settings_path():
@@ -203,22 +219,46 @@ def _load_local_settings():
         return {}
 
 
+_SENSITIVE_KEYS = {'MYSCHOOL_USER', 'MYSCHOOL_PASS', 'FROM_PASSWORD'}
+_KEYRING_SERVICE = 'MySchoolChecks'
+
+
 def _save_config(updates):
     """
-    Αποθηκεύει ένα dict τιμών στο data/local_settings.json (gitignored).
+    Αποθηκεύει ρυθμίσεις:
+      - Ευαίσθητα (MYSCHOOL_USER/PASS, FROM_PASSWORD) → Windows Credential Manager
+      - Μη-ευαίσθητα → data/local_settings.json
     Ενημερώνει επίσης το live config object ώστε να ισχύουν άμεσα.
     """
     import json
-    path = _get_local_settings_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    existing = _load_local_settings()
-    existing.update(updates)
+    sensitive   = {k: v for k, v in updates.items() if k in _SENSITIVE_KEYS}
+    nonsensitive = {k: v for k, v in updates.items() if k not in _SENSITIVE_KEYS}
 
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(existing, f, ensure_ascii=False, indent=2)
+    # ── Αποθήκευση ευαίσθητων στο keyring ───────────────────────────────────
+    try:
+        import keyring
+        for key, val in sensitive.items():
+            if val:
+                keyring.set_password(_KEYRING_SERVICE, key, val)
+    except Exception as e:
+        # Αν το keyring αποτύχει, πέσε back στο JSON (δεν σπάμε τη ροή)
+        nonsensitive.update(sensitive)
+        print(f'[Προσοχή] keyring μη διαθέσιμο, credentials αποθηκεύονται στο JSON: {e}')
 
-    # Ενημέρωση live config object
+    # ── Αποθήκευση μη-ευαίσθητων στο JSON ───────────────────────────────────
+    if nonsensitive:
+        path = _get_local_settings_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        existing = _load_local_settings()
+        # Βεβαιώσου ότι δεν ξαναμπαίνουν sensitive στο JSON
+        for sk in _SENSITIVE_KEYS:
+            existing.pop(sk, None)
+        existing.update(nonsensitive)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+    # ── Ενημέρωση live config object ────────────────────────────────────────
     for key, val in updates.items():
         setattr(config, key, val)
 
@@ -347,14 +387,34 @@ class SettingsDialog(tk.Toplevel):
         sep = tk.Frame(tab1, bg=C['border'], height=1)
         sep.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(16, 4))
 
-        self._section_label(tab1, 4, 'Λογαριασμός email:')
+        # ── Επιλογή Browser ───────────────────────────────────────────────────
+        self._section_label(tab1, 4, 'Browser για σύνδεση:')
+        self._browser_var = tk.StringVar(value=self._cfg('BROWSER', 'chrome'))
+        br_frame = tk.Frame(tab1, bg=C['bg'])
+        br_frame.grid(row=5, column=0, columnspan=2, sticky='w', pady=(2, 4))
+        tk.Radiobutton(br_frame, text='Chrome', variable=self._browser_var,
+                       value='chrome', bg=C['bg'], fg=C['hdr_bg'],
+                       font=('Arial', 9), activebackground=C['bg'],
+                       selectcolor=C['bg2']).pack(side='left', padx=(0, 16))
+        tk.Radiobutton(br_frame, text='Firefox', variable=self._browser_var,
+                       value='firefox', bg=C['bg'], fg=C['hdr_bg'],
+                       font=('Arial', 9), activebackground=C['bg'],
+                       selectcolor=C['bg2']).pack(side='left')
+        tk.Label(tab1, text='(και οι δύο πρέπει να είναι εγκατεστημένοι για να επιλεγούν)',
+                 bg=C['bg'], fg=C['footer'], font=('Arial', 8)).grid(
+                 row=6, column=0, columnspan=2, sticky='w')
+
+        sep1b = tk.Frame(tab1, bg=C['border'], height=1)
+        sep1b.grid(row=7, column=0, columnspan=2, sticky='ew', pady=(16, 4))
+
+        self._section_label(tab1, 8, 'Λογαριασμός email:')
         self._pw_var = tk.StringVar(value=self._cfg('FROM_PASSWORD'))
-        self._pw_row(tab1, 5, 'Κωδικός email:', self._pw_var)
+        self._pw_row(tab1, 9, 'Κωδικός email:', self._pw_var)
 
         if not password_is_set():
             warn = tk.Frame(tab1, bg='#FFF3E0',
                             highlightbackground='#FFB74D', highlightthickness=1)
-            warn.grid(row=6, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+            warn.grid(row=10, column=0, columnspan=2, sticky='ew', pady=(8, 0))
             tk.Label(warn, text='⚠  Ο κωδικός email δεν έχει οριστεί.',
                      bg='#FFF3E0', fg=C['warn'],
                      font=('Arial', 8), padx=8, pady=4).pack()
@@ -457,14 +517,15 @@ class SettingsDialog(tk.Toplevel):
         try:
             from_email = self._from_email_var.get().strip()
             updates = {
-                'MYSCHOOL_USER': self._ms_user_var.get().strip(),
-                'MYSCHOOL_PASS': self._ms_pass_var.get().strip(),
-                'FROM_PASSWORD': self._pw_var.get().strip(),
-                'FROM_NAME'     : self._from_name_var.get().strip(),
-                'FROM_EMAIL'    : from_email,
-                'TEST_EMAIL'    : from_email,   # ίδιο με FROM_EMAIL
-                'SMTP_HOST'     : self._smtp_var.get().strip(),
+                'MYSCHOOL_USER'  : self._ms_user_var.get().strip(),
+                'MYSCHOOL_PASS'  : self._ms_pass_var.get().strip(),
+                'FROM_PASSWORD'  : self._pw_var.get().strip(),
+                'FROM_NAME'      : self._from_name_var.get().strip(),
+                'FROM_EMAIL'     : from_email,
+                'TEST_EMAIL'     : from_email,   # ίδιο με FROM_EMAIL
+                'SMTP_HOST'      : self._smtp_var.get().strip(),
                 'EMAIL_SIGNATURE': self._sig_text.get('1.0', tk.END).strip(),
+                'BROWSER'        : self._browser_var.get(),
             }
 
             if not updates['FROM_PASSWORD']:
@@ -516,7 +577,7 @@ class DownloadDialog(tk.Toplevel):
     def _build(self):
         from core.downloader import downloads_info, REPORTS, get_downloads_dir, FILE_PREFIX_MAP
         import glob as _glob
-        base_dir = _app_base()
+        base_dir = _docs_base()
 
         # Βρες αρχεία που υπάρχουν ήδη στον σημερινό φάκελο
         today_dir = get_downloads_dir(base_dir)
@@ -646,7 +707,7 @@ class DownloadDialog(tk.Toplevel):
             messagebox.showwarning('Προσοχή', 'Επίλεξε τουλάχιστον ένα αρχείο.', parent=self)
             return
 
-        base_dir = _app_base()
+        base_dir = _docs_base()
         dest_dir = get_downloads_dir(base_dir)
 
         self._progress_var.set('Εκκίνηση...')
@@ -663,6 +724,7 @@ class DownloadDialog(tk.Toplevel):
                     dest_dir=dest_dir,
                     callback=on_progress,
                     reports=selected,
+                    browser=getattr(config, 'BROWSER', 'chrome'),
                 )
                 results = dl.run()
                 ok   = sum(1 for v in results.values() if v)

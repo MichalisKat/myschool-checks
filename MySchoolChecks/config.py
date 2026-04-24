@@ -1,8 +1,8 @@
 # config.py
 # ══════════
 # Προεπιλεγμένες τιμές — δεν περιέχουν κωδικούς ή προσωπικά στοιχεία.
-# Όλες οι πραγματικές τιμές αποθηκεύονται τοπικά στο data/local_settings.json
-# και φορτώνονται αυτόματα κατά την εκκίνηση μέσω _load_local().
+# Μη-ευαίσθητες ρυθμίσεις: data/local_settings.json (gitignored)
+# Ευαίσθητα credentials: Windows Credential Manager μέσω keyring (encryption.py)
 
 # ── MySchool credentials (κενά — συμπληρώνονται από Ρυθμίσεις) ────────────
 MYSCHOOL_USER = ''
@@ -17,6 +17,12 @@ TEST_EMAIL    = ''
 
 # ── Υπογραφή email ────────────────────────────────────────────────────────
 EMAIL_SIGNATURE = ''
+
+# ── Browser για Selenium (chrome ή firefox) ───────────────────────────────
+BROWSER = 'chrome'
+
+# ── Αρχείο Αδυνατούντων υπό έγκριση ──────────────────────────────────────
+ADY_XORIS_EGKRISI_PATH = ''
 
 
 def email_signature():
@@ -37,18 +43,16 @@ BODY_TEMPLATE = (
     'τηλ. ...'
 )
 
-# ── Αρχείο Αδυνατούντων υπό έγκριση ──────────────────────────────────────
-ADY_XORIS_EGKRISI_PATH = ''
 
-
-# ── Φόρτωση τοπικών ρυθμίσεων (data/local_settings.json) ─────────────────
 def _load_local():
     """
-    Φορτώνει τοπικές ρυθμίσεις από data/local_settings.json και
-    αντικαθιστά τις προεπιλεγμένες τιμές παραπάνω.
-    Το αρχείο ΔΕΝ ανεβαίνει στο GitHub (βλ. .gitignore).
+    Φορτώνει ρυθμίσεις από δύο πηγές:
+      1. data/local_settings.json  -> μη-ευαίσθητα (FROM_NAME, FROM_EMAIL, SMTP_HOST κ.λπ.)
+      2. Windows Credential Manager -> ευαίσθητα (MYSCHOOL_USER, MYSCHOOL_PASS, FROM_PASSWORD)
+    Το JSON ΔΕΝ ανεβαίνει στο GitHub (βλ. .gitignore).
     """
     import json, os, sys
+
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         pf   = os.environ.get('PROGRAMFILES',      r'C:\Program Files').lower()
@@ -61,20 +65,33 @@ def _load_local():
         else:
             base = exe_dir
     else:
-        # Development: δίπλα στο config.py
         base = os.path.dirname(os.path.abspath(__file__))
+
+    # 1. Φόρτωσε μη-ευαίσθητα από JSON
     path = os.path.join(base, 'data', 'local_settings.json')
-    if not os.path.exists(path):
-        return
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+            g = globals()
+            for k, v in data.items():
+                if k in g:
+                    g[k] = v
+        except Exception:
+            pass
+
+    # 2. Φόρτωσε ευαίσθητα από Windows Credential Manager
     try:
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
+        import keyring
+        _SENSITIVE = ('MYSCHOOL_USER', 'MYSCHOOL_PASS', 'FROM_PASSWORD')
+        _SERVICE   = 'MySchoolChecks'
         g = globals()
-        for k, v in data.items():
-            if k in g:          # ενημέρωσε μόνο γνωστές μεταβλητές
-                g[k] = v
+        for key in _SENSITIVE:
+            val = keyring.get_password(_SERVICE, key)
+            if val:
+                g[key] = val
     except Exception:
-        pass  # αν το αρχείο είναι κατεστραμμένο, χρησιμοποιούμε defaults
+        pass
 
 
 _load_local()

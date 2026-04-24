@@ -64,15 +64,17 @@ class MySchoolDownloader:
         dest_dir    : φάκελος αποθήκευσης (δημιουργείται αυτόματα)
         callback    : callable(message) για progress reporting (default: print)
         reports     : list of report_ids να κατεβούν (default: όλα)
+        browser     : 'chrome' (default) ή 'firefox'
     """
 
     def __init__(self, username, password, dest_dir,
-                 callback=None, reports=None):
+                 callback=None, reports=None, browser='chrome'):
         self.username  = username
         self.password  = password
         self.dest_dir  = dest_dir
         self.callback  = callback or print
-        self.reports   = reports  # None = όλα
+        self.reports   = reports   # None = όλα
+        self.browser   = (browser or 'chrome').lower().strip()  # 'chrome' ή 'firefox'
 
     def _log(self, msg):
         self.callback(msg)
@@ -116,71 +118,100 @@ class MySchoolDownloader:
         os.makedirs(self.dest_dir, exist_ok=True)
         self._log(f'Φάκελος λήψης: {self.dest_dir}')
 
-        # Chrome options
-        options = webdriver.ChromeOptions()
-        prefs = {
-            'download.default_directory'       : str(Path(self.dest_dir).resolve()),
-            'download.prompt_for_download'      : False,
-            'download.directory_upgrade'        : True,
-            'safebrowsing.enabled'              : True,
-            'profile.default_content_setting_values.automatic_downloads': 1,
-            'credentials_enable_service'        : False,
-            'profile.password_manager_enabled'  : False,
-        }
-        options.add_experimental_option('prefs', prefs)
-        options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        options.add_argument('--window-size=1000,700')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-
+        dest_resolved = str(Path(self.dest_dir).resolve())
         driver  = None
         results = {r[0]: None for r in REPORTS if self.reports is None or r[0] in self.reports}
 
         try:
-            self._log('Εκκίνηση Chrome...')
-            from selenium.webdriver.chrome.service import Service as ChromeService
+            if self.browser == 'firefox':
+                # ── Firefox ──────────────────────────────────────────
+                self._log('Εκκίνηση Firefox...')
+                from selenium.webdriver.firefox.service import Service as FirefoxService
+                from selenium.webdriver.firefox.options import Options as FirefoxOptions
 
-            # ── Εύρεση / λήψη ChromeDriver ──────────────────────────
-            _base = os.path.dirname(os.path.abspath(__file__))
-            _drivers_dir = os.path.normpath(
-                os.path.join(_base, '..', '..', 'drivers', 'chromedriver-win64'))
+                ff_options = FirefoxOptions()
+                ff_options.set_preference('browser.download.folderList', 2)
+                ff_options.set_preference('browser.download.dir', dest_resolved)
+                ff_options.set_preference('browser.download.useDownloadDir', True)
+                ff_options.set_preference('browser.download.manager.showWhenStarting', False)
+                ff_options.set_preference('browser.helperApps.neverAsk.saveToDisk',
+                    'application/vnd.ms-excel,'
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,'
+                    'text/csv,application/csv,application/octet-stream')
+                ff_options.set_preference('pdfjs.disabled', True)
 
-            # Τοπικός bundled driver (fallback αν δεν υπάρχει internet)
-            _candidates = [
-                os.path.join(_drivers_dir, 'chromedriver.exe'),
-                os.path.normpath(os.path.join(_base, '..', '..', 'drivers', 'chromedriver.exe')),
-                os.path.normpath(os.path.join(_base, '..', 'drivers', 'chromedriver-win64', 'chromedriver.exe')),
-                os.path.normpath(os.path.join(_base, '..', 'drivers', 'chromedriver.exe')),
-            ]
-            _local = next((p for p in _candidates if os.path.isfile(p)), None)
+                try:
+                    from webdriver_manager.firefox import GeckoDriverManager
+                    _gecko_path = GeckoDriverManager().install()
+                    driver = webdriver.Firefox(
+                        service=FirefoxService(_gecko_path), options=ff_options)
+                    self._log('  GeckoDriver OK (webdriver-manager).')
+                except Exception as _ff_err:
+                    raise RuntimeError(
+                        f'Δεν ήταν δυνατή η εκκίνηση του Firefox.\n\n'
+                        f'Βεβαιώσου ότι ο Firefox είναι εγκατεστημένος\n'
+                        f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη GeckoDriver.'
+                    ) from _ff_err
 
-            # ── 1. webdriver-manager (αυτόματη λήψη σωστής έκδοσης) ─
-            self._log('  Αυτόματη εύρεση/λήψη ChromeDriver...')
-            try:
-                from webdriver_manager.chrome import ChromeDriverManager
-                _wdm_path = ChromeDriverManager().install()
-                driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
-                self._log('  ChromeDriver OK (webdriver-manager).')
-            except Exception as _wdm_err:
-                # ── 2. Fallback: τοπικός bundled driver ──────────────
-                if _local:
-                    self._log(f'  webdriver-manager απέτυχε — δοκιμάζω τοπικό driver...')
-                    try:
-                        driver = webdriver.Chrome(service=ChromeService(_local), options=options)
-                        self._log('  Τοπικός driver OK.')
-                    except Exception as _local_err:
+            else:
+                # ── Chrome (default) ──────────────────────────────────
+                self._log('Εκκίνηση Chrome...')
+                from selenium.webdriver.chrome.service import Service as ChromeService
+
+                options = webdriver.ChromeOptions()
+                prefs = {
+                    'download.default_directory'      : dest_resolved,
+                    'download.prompt_for_download'     : False,
+                    'download.directory_upgrade'       : True,
+                    'safebrowsing.enabled'             : True,
+                    'profile.default_content_setting_values.automatic_downloads': 1,
+                    'credentials_enable_service'       : False,
+                    'profile.password_manager_enabled' : False,
+                }
+                options.add_experimental_option('prefs', prefs)
+                options.add_experimental_option('excludeSwitches', ['enable-logging'])
+                options.add_argument('--window-size=1000,700')
+                options.add_argument('--no-sandbox')
+                options.add_argument('--disable-dev-shm-usage')
+
+                # Εύρεση τοπικού bundled driver (fallback)
+                _base = os.path.dirname(os.path.abspath(__file__))
+                _drivers_dir = os.path.normpath(
+                    os.path.join(_base, '..', '..', 'drivers', 'chromedriver-win64'))
+                _candidates = [
+                    os.path.join(_drivers_dir, 'chromedriver.exe'),
+                    os.path.normpath(os.path.join(_base, '..', '..', 'drivers', 'chromedriver.exe')),
+                    os.path.normpath(os.path.join(_base, '..', 'drivers', 'chromedriver-win64', 'chromedriver.exe')),
+                    os.path.normpath(os.path.join(_base, '..', 'drivers', 'chromedriver.exe')),
+                ]
+                _local = next((p for p in _candidates if os.path.isfile(p)), None)
+
+                self._log('  Αυτόματη εύρεση/λήψη ChromeDriver...')
+                try:
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    _wdm_path = ChromeDriverManager().install()
+                    driver = webdriver.Chrome(service=ChromeService(_wdm_path), options=options)
+                    self._log('  ChromeDriver OK (webdriver-manager).')
+                except Exception as _wdm_err:
+                    if _local:
+                        self._log('  webdriver-manager απέτυχε — δοκιμάζω τοπικό driver...')
+                        try:
+                            driver = webdriver.Chrome(service=ChromeService(_local), options=options)
+                            self._log('  Τοπικός driver OK.')
+                        except Exception as _local_err:
+                            raise RuntimeError(
+                                f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
+                                f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
+                                f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
+                            ) from _local_err
+                    else:
                         raise RuntimeError(
                             f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
                             f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
                             f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
-                        ) from _local_err
-                else:
-                    raise RuntimeError(
-                        f'Δεν ήταν δυνατή η εκκίνηση του ChromeDriver.\n\n'
-                        f'Βεβαιώσου ότι ο Chrome είναι εγκατεστημένος και ενημερωμένος\n'
-                        f'και ότι υπάρχει σύνδεση internet για αυτόματη λήψη driver.'
-                    ) from _wdm_err
-            wait   = WebDriverWait(driver, 20)
+                        ) from _wdm_err
+
+            wait = WebDriverWait(driver, 20)
 
             # ── Login ────────────────────────────────────────────────
             self._log('Σύνδεση στο MySchool...')
@@ -498,6 +529,7 @@ def cleanup_old_downloads(base_dir, keep=3):
             shutil.rmtree(old_folder)
         except Exception:
             pass
+
 
 
 def find_latest_downloads(base_dir):

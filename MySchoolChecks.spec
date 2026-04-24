@@ -6,7 +6,7 @@ datas = [
     ('MySchoolChecks\\core', 'core'),
     ('MySchoolChecks\\config.py', '.'),
     ('MySchoolChecks\\startup.mp3', '.'),
-    ('MySchoolChecks\\8ball.ico', '.'),
+    ('MySchoolChecks\\app.ico', '.'),
     ('MySchoolChecks_Odigos.pdf', '.'),
 ]
 binaries = []
@@ -59,5 +59,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['MySchoolChecks\\8ball.ico'],
+    icon=['MySchoolChecks\\app.ico'],
 )

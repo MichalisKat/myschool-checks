@@ -46,3 +46,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# ── Μουσική (Pixabay License — δεν ανεβαίνει στο GitHub) ─────────────────
+*.mp3
