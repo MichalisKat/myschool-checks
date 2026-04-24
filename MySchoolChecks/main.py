@@ -855,7 +855,7 @@ class LauncherApp:
 
         self._check_vars = []
 
-        for i, (title, desc, _) in enumerate(self.checks):
+        for i, (title, desc, mod) in enumerate(self.checks):
             var = tk.BooleanVar(value=(i == 0))
             self._check_vars.append(var)
 
@@ -872,6 +872,16 @@ class LauncherApp:
             ind = Indicator(top, bg=C['norm_bg'])
             ind.pack(side='left', padx=(0, 6))
             self.indicators.append(ind)
+
+            # Κουμπί επεξεργασίας email (μόνο για ελέγχους με email)
+            if getattr(mod, 'HAS_EMAIL', False):
+                mod_name = mod.__name__.split('.')[-1]
+                tk.Button(top, text='✏',
+                          bg=C['norm_bg'], fg=C['hdr_bg'],
+                          font=('Arial', 10), relief='flat', cursor='hand2',
+                          activebackground=C['sel_bg'],
+                          command=lambda m=mod, mn=mod_name: self._open_email_editor(mn, m)
+                          ).pack(side='right', padx=(4, 0))
 
             cb = tk.Checkbutton(top, text=title,
                                 variable=var,
@@ -955,6 +965,122 @@ class LauncherApp:
         for var in self._check_vars:
             var.set(True)
         self._refresh_highlights()
+
+    # ── Email template editor ────────────────────────────────────────────────
+
+    def _get_default_email_body(self, module):
+        """Επιστρέφει το default body text χωρίς υπογραφή."""
+        body_t = getattr(module, 'EMAIL_BODY', '')
+        try:
+            full = body_t('') if callable(body_t) else body_t
+            sig  = config.email_signature()
+            if sig and full.endswith(sig):
+                return full[:-len(sig)]
+            return full
+        except Exception:
+            return ''
+
+    def _open_email_editor(self, mod_name, module):
+        """Dialog επεξεργασίας email template για συγκεκριμένο έλεγχο."""
+        import json
+
+        # Φόρτωσε τρέχον template (custom ή default)
+        settings = _load_local_settings()
+        templates = settings.get('email_templates', {})
+        custom = templates.get(mod_name)
+
+        if custom:
+            cur_subject = custom.get('subject', '')
+            cur_body    = custom.get('body', '')
+        else:
+            cur_subject = getattr(module, 'EMAIL_SUBJECT', '')
+            cur_body    = self._get_default_email_body(module)
+
+        title_str = getattr(module, 'CHECK_TITLE', mod_name)
+
+        # Παράθυρο
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f'Πρότυπο Email — {title_str}')
+        dlg.configure(bg=C['bg'])
+        dlg.resizable(True, False)
+        dlg.grab_set()
+        dlg.transient(self.root)
+
+        pad = dict(padx=14, pady=5)
+
+        tk.Label(dlg, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+
+        subj_var = tk.StringVar(value=cur_subject)
+        tk.Entry(dlg, textvariable=subj_var, font=('Arial', 9),
+                 width=60).pack(fill='x', padx=14, pady=(0, 8))
+
+        tk.Label(dlg, text='Κείμενο email:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+
+        txt = tk.Text(dlg, font=('Arial', 9), width=60, height=10,
+                      wrap='word', relief='solid', bd=1)
+        txt.pack(fill='x', padx=14, pady=(0, 4))
+        txt.insert('1.0', cur_body)
+
+        tk.Label(dlg, text='Η υπογραφή σας προστίθεται αυτόματα στο τέλος.',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 anchor='w').pack(fill='x', padx=14, pady=(0, 10))
+
+        def _save():
+            new_subj = subj_var.get().strip()
+            new_body = txt.get('1.0', 'end-1c')
+            s = _load_local_settings()
+            s.setdefault('email_templates', {})[mod_name] = {
+                'subject': new_subj,
+                'body':    new_body,
+            }
+            path = _get_local_settings_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(s, f, ensure_ascii=False, indent=2)
+            dlg.destroy()
+            messagebox.showinfo('Αποθήκευση', 'Το πρότυπο email αποθηκεύτηκε.',
+                                parent=self.root)
+
+        def _reset():
+            if messagebox.askyesno('Επαναφορά', 'Να επανέλθει το προεπιλεγμένο κείμενο;',
+                                   parent=dlg):
+                s = _load_local_settings()
+                s.get('email_templates', {}).pop(mod_name, None)
+                path = _get_local_settings_path()
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(s, f, ensure_ascii=False, indent=2)
+                dlg.destroy()
+
+        btn_row = tk.Frame(dlg, bg=C['bg'])
+        btn_row.pack(pady=(0, 12))
+
+        tk.Button(btn_row, text='Αποθήκευση',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_save).pack(side='left', padx=4)
+
+        tk.Button(btn_row, text='Επαναφορά προεπιλογής',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=_reset).pack(side='left', padx=4)
+
+        tk.Button(btn_row, text='Άκυρο',
+                  bg=C['bg2'], fg=C['desc'],
+                  font=('Arial', 9), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=dlg.destroy).pack(side='left', padx=4)
+
+        dlg.update_idletasks()
+        # Κεντράρισμα
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        dlg.geometry(f'+{x}+{y}')
 
     def _open_help(self):
         """Παράθυρο βοήθειας — εμφανίζει το README.md."""

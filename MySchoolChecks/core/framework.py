@@ -692,6 +692,31 @@ def run_check(check_module, config):
     ecol   = getattr(check_module, 'EMAIL_COLUMN',   'Email Σχολείου')
     subj   = getattr(check_module, 'EMAIL_SUBJECT',  '')
     body_t = getattr(check_module, 'EMAIL_BODY',     '')
+
+    # Έλεγξε για custom email template αποθηκευμένο από τον χρήστη
+    try:
+        import json, sys as _sys
+        _mod_name = check_module.__name__.split('.')[-1]
+        _exe = _sys.executable
+        if getattr(_sys, 'frozen', False):
+            _exe_dir = os.path.dirname(_exe)
+            if 'program files' in _exe_dir.lower():
+                _base = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'MySchoolChecks')
+            else:
+                _base = _exe_dir
+        else:
+            _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _settings_path = os.path.join(_base, 'data', 'local_settings.json')
+        if os.path.exists(_settings_path):
+            with open(_settings_path, encoding='utf-8') as _f:
+                _sdata = json.load(_f)
+            _tmpl = _sdata.get('email_templates', {}).get(_mod_name)
+            if _tmpl:
+                subj   = _tmpl.get('subject', subj)
+                _cbody = _tmpl.get('body', '')
+                body_t = lambda school='', _b=_cbody: _b + config.email_signature()
+    except Exception:
+        pass
     rfold  = getattr(check_module, 'RESULTS_FOLDER', 'results')
     ccols  = getattr(check_module, 'CENTER_COLS',    set())
     hlcol  = getattr(check_module, 'HIGHLIGHT_COL',  None)
