@@ -1,0 +1,48 @@
+# ── Τοπικές ρυθμίσεις & δεδομένα (δεν ανεβαίνουν στο GitHub) ──────────────
+MySchoolChecks/data/
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ───────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ── Selenium / WebDriver ───────────────────────────────────────────────────
+.wdm/
+
+# ── Λήψεις (downloads) ───────────────────────────────────────────────────
+MySchoolChecks/downloads/
+
+# ── Markers εγκατάστασης (τοπικά) ────────────────────────────────────────
+MySchoolChecks/.libs_ok
+MySchoolChecks/.shortcut_ok
+
+# ── Αποτελέσματα ελέγχων ──────────────────────────────────────────────────
+MySchoolChecks/results_*/
+
+# ── Build artifacts ────────────────────────────────────────────────────────
+dist/
+build/
+*.exe
+*.msix
+
+# ── ChromeDriver binary ────────────────────────────────────────────────────
+drivers/chromedriver-win64/chromedriver.exe
+drivers/chromedriver-win64/THIRD_PARTY_NOTICES.chromedriver
+
+# ── Claude Code ────────────────────────────────────────────────────────────
+.claude/
+
+# ── Editor / OS ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
