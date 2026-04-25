@@ -840,6 +840,14 @@ class LauncherApp:
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_download).pack(side='left', padx=(6, 0))
+        tk.Label(toolbar, text='|', bg=C['bg2'], fg=C['desc'],
+                 font=('Arial', 9)).pack(side='left', padx=4)
+        tk.Button(toolbar, text='📋  Εκπ/κοί ανά Ειδικότητα',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_eidikotita_tool).pack(side='left', padx=(0, 0))
 
         # Body
         body = tk.Frame(self.root, bg=C['bg'], padx=18, pady=14)
@@ -947,6 +955,9 @@ class LauncherApp:
 
     def _open_download(self):
         DownloadDialog(self.root)
+
+    def _open_eidikotita_tool(self):
+        EidikotitaDialog(self.root)
 
     def _refresh_highlights(self):
         for i, (f, ind) in enumerate(zip(self.check_frames, self.indicators)):
@@ -1402,6 +1413,361 @@ def _do_update(parent, new_ver, dl_url):
                     parent=parent)])
 
     threading.Thread(target=_download, daemon=True).start()
+
+
+class EidikotitaDialog(tk.Toplevel):
+    """Εργαλείο εξαγωγής εκπαιδευτικών ανά ειδικότητα."""
+
+    # Προεπιλεγμένο κείμενο email — αποθηκεύεται στο local_settings.json
+    _SETTINGS_KEY = 'eidikotita_tool'
+    _DEFAULT_BODY = (
+        'Αποτύπωση Myschool {date}.\n\n'
+        'Καλημέρα σας,\n\n'
+        'Επισυνάπτω πίνακα excel με τους εκπαιδευτικούς ειδικότητας {specialty} '
+        'που υπηρετούν στην Δ/νση Α/θμιας Αν. Θεσ/κης σύμφωνα με τα καταχωρημένα '
+        'στοιχεία στο myschool.\n\n\n'
+        'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
+    )
+    _DEFAULT_SUBJECT = 'Στοιχεία τοποθετήσεων εκπ/κών "{specialty}" σε σχολικές μονάδες'
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Εκπ/κοί ανά Ειδικότητα')
+        self.configure(bg=C['bg'])
+        self.resizable(True, True)
+        self.grab_set()
+        self.transient(parent)
+        self._parent = parent
+        self._df     = None
+        self._col_vars = {}
+
+        # Φόρτωσε αποθηκευμένες ρυθμίσεις
+        s = _load_local_settings().get(self._SETTINGS_KEY, {})
+        self._saved_subject = s.get('subject', self._DEFAULT_SUBJECT)
+        self._saved_body    = s.get('body',    self._DEFAULT_BODY)
+        self._saved_email   = s.get('advisor_email', '')
+        self._saved_cols    = s.get('selected_cols', None)
+
+        self._build_step1()
+        self.update_idletasks()
+        w, h = 540, 420
+        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{x}+{y}')
+
+    # ── Βήμα 1: Επιλογή αρχείου ─────────────────────────────────────────────
+
+    def _build_step1(self):
+        self._clear()
+        tk.Label(self, text='Βήμα 1 — Επιλογή αρχείου',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+        tk.Label(self, text='Επίλεξε το αρχείο που περιέχει τα στοιχεία εκπαιδευτικών:',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 9)).pack(anchor='w', padx=18)
+
+        frm = tk.Frame(self, bg=C['bg'])
+        frm.pack(fill='x', padx=18, pady=8)
+
+        self._path_var = tk.StringVar()
+        tk.Entry(frm, textvariable=self._path_var, font=('Arial', 9),
+                 width=46, state='readonly').pack(side='left', fill='x', expand=True)
+        tk.Button(frm, text='Αναζήτηση…',
+                  bg=C['hdr_bg'], fg='white', relief='flat',
+                  font=('Arial', 9), padx=8, cursor='hand2',
+                  command=self._browse_file).pack(side='left', padx=(6, 0))
+
+        self._err_lbl = tk.Label(self, text='', bg=C['bg'], fg='#CC0000',
+                                 font=('Arial', 8))
+        self._err_lbl.pack(anchor='w', padx=18)
+
+        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=14)
+        tk.Button(btn_row, text='Επόμενο ▶',
+                  bg=C['btn_bg'], fg=C['btn_fg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=5, cursor='hand2',
+                  command=self._step1_next).pack()
+
+    def _browse_file(self):
+        from tkinter.filedialog import askopenfilename
+        path = askopenfilename(
+            parent=self,
+            title='Επιλογή αρχείου εκπαιδευτικών',
+            filetypes=[('Excel / CSV', '*.xls *.xlsx *.csv'), ('Όλα', '*.*')]
+        )
+        if path:
+            self._path_var.set(path)
+
+    def _step1_next(self):
+        path = self._path_var.get()
+        if not path:
+            self._err_lbl.config(text='Επίλεξε αρχείο.')
+            return
+        try:
+            import pandas as pd
+            if path.lower().endswith('.csv'):
+                for enc in ['utf-8', 'iso-8859-7', 'cp1253']:
+                    try:
+                        self._df = pd.read_csv(path, sep=None, engine='python', encoding=enc)
+                        break
+                    except Exception:
+                        continue
+            else:
+                self._df = pd.read_excel(path)
+            if self._df is None or self._df.empty:
+                self._err_lbl.config(text='Το αρχείο είναι κενό.')
+                return
+            self._build_step2()
+        except Exception as e:
+            self._err_lbl.config(text=f'Σφάλμα ανάγνωσης: {e}')
+
+    # ── Βήμα 2: Ειδικότητα + Στήλες ────────────────────────────────────────
+
+    def _build_step2(self):
+        self._clear()
+        df = self._df
+
+        # Βρες στήλη ειδικότητας
+        spec_candidates = [c for c in df.columns
+                           if any(k in c.lower() for k in ['ειδικ', 'κλάδ', 'κωδικός κύρ'])]
+        self._spec_col = spec_candidates[0] if spec_candidates else df.columns[0]
+
+        specialties = sorted(df[self._spec_col].dropna().astype(str).unique())
+
+        tk.Label(self, text='Βήμα 2 — Ειδικότητα & Στήλες',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+
+        # Ειδικότητα
+        row1 = tk.Frame(self, bg=C['bg'])
+        row1.pack(fill='x', padx=18, pady=(0, 8))
+        tk.Label(row1, text='Ειδικότητα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), width=14, anchor='w').pack(side='left')
+        self._spec_var = tk.StringVar(value=specialties[0] if specialties else '')
+        from tkinter import ttk as _ttk
+        combo = _ttk.Combobox(row1, textvariable=self._spec_var,
+                              values=specialties, width=20, state='readonly')
+        combo.pack(side='left')
+
+        # Στήλες
+        tk.Label(self, text='Στήλες που θα περιλαμβάνονται:',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold')).pack(anchor='w', padx=18, pady=(4, 2))
+
+        cols_frame = tk.Frame(self, bg=C['bg'])
+        cols_frame.pack(fill='x', padx=26)
+        self._col_vars = {}
+        saved = self._saved_cols or []
+        for i, col in enumerate(df.columns):
+            default = (col in saved) if saved else True
+            var = tk.BooleanVar(value=default)
+            self._col_vars[col] = var
+            tk.Checkbutton(cols_frame, text=col, variable=var,
+                           bg=C['bg'], activebackground=C['bg'],
+                           font=('Arial', 8), anchor='w').grid(
+                row=i // 2, column=i % 2, sticky='w', padx=4)
+
+        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=14)
+        tk.Button(btn_row, text='◀ Πίσω',
+                  bg=C['bg2'], fg=C['desc'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=self._build_step1).pack(side='left', padx=4)
+        tk.Button(btn_row, text='Επόμενο ▶',
+                  bg=C['btn_bg'], fg=C['btn_fg'], relief='flat',
+                  font=('Arial', 9, 'bold'), padx=14, pady=5, cursor='hand2',
+                  command=self._build_step3).pack(side='left', padx=4)
+
+    # ── Βήμα 3: Email ───────────────────────────────────────────────────────
+
+    def _build_step3(self):
+        selected_cols = [c for c, v in self._col_vars.items() if v.get()]
+        if not selected_cols:
+            messagebox.showwarning('Στήλες', 'Επίλεξε τουλάχιστον μία στήλη.', parent=self)
+            return
+        self._selected_cols = selected_cols
+        self._clear()
+
+        specialty = self._spec_var.get()
+
+        tk.Label(self, text='Βήμα 3 — Email αποστολής',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+
+        pad = dict(padx=18, pady=3)
+
+        # Παραλήπτης
+        tk.Label(self, text='Προς (email συμβούλου):',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._to_var = tk.StringVar(value=self._saved_email)
+        tk.Entry(self, textvariable=self._to_var,
+                 font=('Arial', 9), width=50).pack(fill='x', padx=18, pady=(0, 6))
+
+        # Θέμα
+        tk.Label(self, text='Θέμα:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', **pad)
+        self._subj_var = tk.StringVar(
+            value=self._saved_subject.replace('{specialty}', specialty))
+        tk.Entry(self, textvariable=self._subj_var,
+                 font=('Arial', 9), width=50).pack(fill='x', padx=18, pady=(0, 6))
+
+        # Κείμενο
+        tk.Label(self, text='Κείμενο email:',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._body_txt = tk.Text(self, font=('Arial', 9), height=7,
+                                 wrap='word', relief='solid', bd=1)
+        self._body_txt.pack(fill='x', padx=18, pady=(0, 2))
+        from datetime import datetime
+        today_str = datetime.today().strftime('%d/%m/%Y')
+        body_filled = self._saved_body.replace('{date}', today_str).replace('{specialty}', specialty)
+        self._body_txt.insert('1.0', body_filled)
+
+        tk.Label(self, text='Η υπογραφή σας προστίθεται αυτόματα στο τέλος.',
+                 bg=C['bg'], fg=C['desc'], font=('Arial', 8),
+                 anchor='w').pack(fill='x', padx=18, pady=(0, 4))
+
+        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=10)
+        tk.Button(btn_row, text='◀ Πίσω',
+                  bg=C['bg2'], fg=C['desc'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=self._build_step2).pack(side='left', padx=4)
+        tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
+                  bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=False)).pack(side='left', padx=4)
+        tk.Button(btn_row, text='▶  Δημιουργία & Αποστολή',
+                  bg=C['btn_bg'], fg=C['btn_fg'], relief='flat',
+                  font=('Arial', 9, 'bold'), padx=14, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=True)).pack(side='left', padx=4)
+
+    # ── Εκτέλεση ────────────────────────────────────────────────────────────
+
+    def _execute(self, send=True):
+        import json, pandas as pd
+        from datetime import datetime
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        specialty    = self._spec_var.get()
+        to_email     = self._to_var.get().strip()
+        subject      = self._subj_var.get().strip()
+        body_text    = self._body_txt.get('1.0', 'end-1c')
+        full_body    = body_text + '\n\n' + config.email_signature()
+
+        if send and not to_email:
+            messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self)
+            return
+
+        # Αποθήκευση ρυθμίσεων (χωρίς placeholders)
+        s = _load_local_settings()
+        s[self._SETTINGS_KEY] = {
+            'subject':       self._saved_subject,
+            'body':          self._saved_body,
+            'advisor_email': to_email,
+            'selected_cols': self._selected_cols,
+        }
+        path_s = _get_local_settings_path()
+        os.makedirs(os.path.dirname(path_s), exist_ok=True)
+        with open(path_s, 'w', encoding='utf-8') as f:
+            json.dump(s, f, ensure_ascii=False, indent=2)
+
+        # Φιλτράρισμα δεδομένων
+        df = self._df.copy()
+        df = df[df[self._spec_col].astype(str) == specialty]
+        available = [c for c in self._selected_cols if c in df.columns]
+        df = df[available].reset_index(drop=True)
+
+        # Δημιουργία Excel
+        today_str = datetime.today().strftime('%Y%m%d')
+        out_dir   = os.path.join(_docs_base(), f'results_{today_str}')
+        os.makedirs(out_dir, exist_ok=True)
+        spec_safe = specialty.replace('/', '_').replace('\\', '_')
+        out_path  = os.path.join(out_dir, f'Εκπαιδευτικοί_{spec_safe}_{today_str}.xlsx')
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = specialty
+
+        hdr_font  = Font(name='Arial', bold=True, color='FFFFFF', size=9)
+        hdr_fill  = PatternFill('solid', start_color='2E6DA4')
+        hdr_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        row_align = Alignment(horizontal='left', vertical='center', wrap_text=False)
+        alt_fill  = PatternFill('solid', start_color='EEF4F9')
+        thin      = Side(style='thin', color='CCCCCC')
+        border    = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        # Επικεφαλίδες
+        for ci, col in enumerate(available, 1):
+            cell = ws.cell(row=1, column=ci, value=col)
+            cell.font      = hdr_font
+            cell.fill      = hdr_fill
+            cell.alignment = hdr_align
+            cell.border    = border
+
+        # Δεδομένα
+        for ri, row in df.iterrows():
+            for ci, col in enumerate(available, 1):
+                val  = row[col]
+                if pd.isna(val):
+                    val = ''
+                elif isinstance(val, float) and val == int(val):
+                    val = int(val)
+                cell = ws.cell(row=ri + 2, column=ci, value=val)
+                cell.font      = Font(name='Arial', size=9)
+                cell.alignment = row_align
+                cell.border    = border
+                if ri % 2 == 1:
+                    cell.fill = alt_fill
+
+        # Πλάτη στηλών
+        for ci, col in enumerate(available, 1):
+            max_len = max(
+                len(str(col)),
+                *[len(str(df.iloc[r][col])) for r in range(min(len(df), 50))
+                  if not pd.isna(df.iloc[r][col])]
+            ) if len(df) > 0 else len(col)
+            ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 3, 40)
+
+        ws.row_dimensions[1].height = 30
+        ws.freeze_panes = 'A2'
+        wb.save(out_path)
+
+        if not send:
+            messagebox.showinfo('Έτοιμο',
+                f'Αρχείο αποθηκεύτηκε:\n{out_path}', parent=self)
+            try:
+                import subprocess
+                subprocess.Popen(['explorer', out_dir])
+            except Exception:
+                pass
+            self.destroy()
+            return
+
+        # Αποστολή email
+        try:
+            from core.framework import send_email
+            send_email(config, to_email, subject, full_body, out_path)
+            messagebox.showinfo('Αποστολή',
+                f'Το email στάλθηκε στον/στην:\n{to_email}\n\nΑρχείο: {out_path}',
+                parent=self)
+            try:
+                import subprocess
+                subprocess.Popen(['explorer', out_dir])
+            except Exception:
+                pass
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
+
+    # ── Βοηθητικά ───────────────────────────────────────────────────────────
+
+    def _clear(self):
+        for w in self.winfo_children():
+            w.destroy()
 
 
 def _show_help(parent):
