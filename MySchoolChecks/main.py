@@ -816,6 +816,9 @@ class LauncherApp:
         tk.Label(hdr, text='Δ/νση Π.Ε. Ανατολικής Θεσσαλονίκης',
                  bg=C['hdr_bg'], fg=C['hdr_sub'],
                  font=('Arial', 9)).pack()
+        tk.Label(hdr, text=f'v{config.APP_VERSION}',
+                 bg=C['hdr_bg'], fg=C['hdr_sub'],
+                 font=('Arial', 7)).pack()
 
         # Ένδειξη αν ο κωδικός λείπει
         if not password_is_set():
