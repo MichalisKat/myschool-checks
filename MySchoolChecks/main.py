@@ -856,6 +856,12 @@ class LauncherApp:
                   padx=14, pady=4, cursor='hand2',
                   activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
                   command=self._open_eidikotita_tool).pack(side='left', padx=(0, 0))
+        tk.Button(toolbar, text='🏫  Σχολικές Μονάδες',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 9, 'bold'), relief='flat',
+                  padx=14, pady=4, cursor='hand2',
+                  activebackground=C['sel_bg'], activeforeground=C['hdr_bg'],
+                  command=self._open_monada_tool).pack(side='left', padx=(0, 0))
 
         # Body
         body = tk.Frame(self.root, bg=C['bg'], padx=18, pady=14)
@@ -966,6 +972,9 @@ class LauncherApp:
 
     def _open_eidikotita_tool(self):
         EidikotitaDialog(self.root)
+
+    def _open_monada_tool(self):
+        MonadaDialog(self.root)
 
     def _refresh_highlights(self):
         for i, (f, ind) in enumerate(zip(self.check_frames, self.indicators)):
@@ -2020,6 +2029,618 @@ class EidikotitaDialog(tk.Toplevel):
             messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
 
     # ── Βοηθητικά ───────────────────────────────────────────────────────────
+
+    def _clear(self):
+        for w in self.winfo_children():
+            w.destroy()
+
+
+class MonadaDialog(tk.Toplevel):
+    """Εργαλείο εξαγωγής στοιχείων σχολικών μονάδων ανά Δήμο."""
+
+    _SETTINGS_KEY   = 'monada_tool'
+    _DEFAULT_BODY   = (
+        'Αποτύπωση Myschool {date}.\n\n'
+        'Καλημέρα σας,\n\n'
+        'Επισυνάπτω πίνακα excel με τα στοιχεία των σχολικών μονάδων '
+        'Δήμου {dimos} σύμφωνα με τα καταχωρημένα στοιχεία στο myschool.\n\n\n'
+        'Στη διάθεσή σας για οποιαδήποτε πληροφορία'
+    )
+    _DEFAULT_SUBJECT = 'Στοιχεία σχολικών μονάδων Δήμου {dimos}'
+
+    # Ταξινόμηση τάξεων (Νηπιαγωγείο + Δημοτικό)
+    _CLASS_ORDER = ['ΠΡΟΝΗΠΙΑ', 'ΝΗΠΙΑ', 'ΠΡΟΝΗΠΙΑ-ΝΗΠΙΑ', 'Α', 'Β', 'Γ', 'Δ', 'Ε', 'ΣΤ']
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title('Στοιχεία Σχολικών Μονάδων')
+        self.configure(bg=C['bg'])
+        self.resizable(True, True)
+        self.grab_set()
+        self.transient(parent)
+        self._parent = parent
+
+        s = _load_local_settings().get(self._SETTINGS_KEY, {})
+        self._saved_subject = s.get('subject',     self._DEFAULT_SUBJECT)
+        self._saved_body    = s.get('body',         self._DEFAULT_BODY)
+        self._saved_email   = s.get('dimos_email',  '')
+
+        # Αυτόματη εύρεση αρχείων zip
+        # CSV_* = χειροκίνητο download, stat2_2* = μέσω app downloader (2.2), gridResults* = 2.1 fallback
+        self._csv_path    = self._auto_find_zip('CSV_', 'stat2_2', 'gridResults')
+        self._stat31_path = self._auto_find_zip('stat3_1')
+
+        self._build_form()
+        self.update_idletasks()
+        w, h = 630, 540
+        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f'{w}x{h}+{x}+{y}')
+
+    # ── Auto-find ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _auto_find_zip(*prefixes):
+        """Ψάχνει αρχείο (zip/csv/xlsx) με δοθέν prefix — downloads app πρώτα, μετά ~/Downloads.
+        Δέχεται πολλαπλά prefixes (πρώτο εύρημα κερδίζει).
+        """
+        import glob as _glob
+        folders = []
+        dl_base = os.path.join(_docs_base(), 'downloads')
+        if os.path.isdir(dl_base):
+            folders += sorted([
+                os.path.join(dl_base, d)
+                for d in os.listdir(dl_base)
+                if os.path.isdir(os.path.join(dl_base, d))
+            ], reverse=True)
+        folders.append(os.path.join(os.path.expanduser('~'), 'Downloads'))
+        for folder in folders:
+            for prefix in prefixes:
+                # .zip πρώτα (χειροκίνητο κατέβασμα), μετά .csv/.xlsx (μέσω app downloader)
+                for pattern in (f'{prefix}*.zip', f'{prefix}*.csv', f'{prefix}*.xlsx'):
+                    matches = [f for f in _glob.glob(os.path.join(folder, pattern))
+                               if not f.endswith('.tmp') and not f.endswith('.crdownload')]
+                    if matches:
+                        return sorted(matches)[-1]
+        return ''
+
+    # ── Βοηθητικά ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _clean_code(val):
+        """Αφαιρεί =\"XXXXX\" format και επιστρέφει τα ψηφία (lstrip 0)."""
+        import re
+        s = str(val).strip().strip('"').lstrip('=').strip('"').strip()
+        s = re.sub(r'\.0$', '', s)
+        return s.lstrip('0') or s  # lstrip('0') αλλά όχι αν το αποτέλεσμα είναι κενό
+
+    @staticmethod
+    def _s(val):
+        """Επιστρέφει string από τιμή — NaN/nan → κενό, .0 stripped."""
+        import re
+        if val is None: return ''
+        s = str(val).strip()
+        if s.lower() in ('nan', 'none', ''): return ''
+        return re.sub(r'\.0$', '', s)
+
+    @staticmethod
+    def _read_zip_csv(path, encoding='cp1253', strip_trailing_sep=False):
+        """Διαβάζει CSV/XLSX — από zip, plain CSV, ή xlsx.
+        strip_trailing_sep: True για αρχεία με trailing ';' (π.χ. stat3_1).
+        """
+        import zipfile, io, pandas as pd
+        lower = path.lower()
+        if lower.endswith('.xlsx'):
+            return pd.read_excel(path, dtype=str)
+        if lower.endswith('.zip'):
+            with zipfile.ZipFile(path) as z:
+                raw = z.read(z.namelist()[0])
+        else:
+            # Plain CSV (κατεβασμένο μέσω app downloader)
+            with open(path, 'rb') as f:
+                raw = f.read()
+        text = raw.decode(encoding)
+        if strip_trailing_sep:
+            text = '\n'.join(l.rstrip(';') for l in text.splitlines())
+        return pd.read_csv(io.StringIO(text), sep=';', dtype=str)
+
+    # ── Κύρια φόρμα ──────────────────────────────────────────────────────────
+
+    def _build_form(self):
+        self._clear()
+
+        tk.Label(self, text='Στοιχεία Σχολικών Μονάδων',
+                 bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 11, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+
+        # Προειδοποίηση αν λείπουν αρχεία
+        missing = []
+        if not self._csv_path:    missing.append('Κατάλογος Μονάδων (CSV_...zip)')
+        if not self._stat31_path: missing.append('Στατιστικό 3.1 (stat3_1...zip)')
+        if missing:
+            tk.Label(self,
+                text=f'⚠  Δεν βρέθηκαν: {", ".join(missing)}. Κατέβασέ τα από MySchool.',
+                bg='#FFF3E0', fg='#E65100', font=('Arial', 8),
+                anchor='w', padx=10, pady=5, wraplength=570, justify='left',
+            ).pack(fill='x', padx=18, pady=(0, 6))
+
+        # ── Δήμος ─────────────────────────────────────────────────────────────
+        tk.Label(self, text='Δήμος:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+
+        dimos_row = tk.Frame(self, bg=C['bg'])
+        dimos_row.pack(fill='x', padx=18, pady=(2, 6))
+        self._dimos_var = tk.StringVar()
+        from tkinter import ttk as _ttk
+        self._dimos_combo = _ttk.Combobox(dimos_row, textvariable=self._dimos_var,
+                                           width=40, state='readonly')
+        self._dimos_combo.pack(side='left')
+        self._dimos_lbl = tk.Label(dimos_row, text='Φόρτωση…',
+                                    bg=C['bg'], fg=C['desc'], font=('Arial', 8))
+        self._dimos_lbl.pack(side='left', padx=(10, 0))
+        self._dimos_var.trace_add('write', self._on_dimos_change)
+
+        # ── Εμφάνιση ──────────────────────────────────────────────────────────
+        tk.Label(self, text='Εμφάνιση:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(4, 0))
+        mode_row = tk.Frame(self, bg=C['bg'])
+        mode_row.pack(fill='x', padx=18, pady=(2, 6))
+        self._mode_var = tk.StringVar(value='monada')
+        tk.Radiobutton(mode_row, text='Ανά Σχολική Μονάδα', variable=self._mode_var,
+                       value='monada', bg=C['bg'], font=('Arial', 9),
+                       activebackground=C['bg']).pack(side='left', padx=(0, 18))
+        tk.Radiobutton(mode_row, text='Ανά Τάξη', variable=self._mode_var,
+                       value='taxh', bg=C['bg'], font=('Arial', 9),
+                       activebackground=C['bg']).pack(side='left')
+
+        # ── Email ─────────────────────────────────────────────────────────────
+        pad = dict(padx=18, pady=2)
+        tk.Label(self, text='Προς (email δήμου):',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._to_var = tk.StringVar(value=self._saved_email)
+        tk.Entry(self, textvariable=self._to_var,
+                 font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
+
+        tk.Label(self, text='Θέμα:',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._subj_var = tk.StringVar(value=self._saved_subject)
+        tk.Entry(self, textvariable=self._subj_var,
+                 font=('Arial', 9)).pack(fill='x', padx=18, pady=(0, 6))
+
+        tk.Label(self, text='Κείμενο email:',
+                 bg=C['bg'], fg=C['hdr_bg'], font=('Arial', 9, 'bold'),
+                 anchor='w').pack(fill='x', **pad)
+        self._body_txt = tk.Text(self, font=('Arial', 9), height=5,
+                                  wrap='word', relief='solid', bd=1)
+        self._body_txt.pack(fill='x', padx=18, pady=(0, 6))
+        from datetime import datetime as _dt
+        self._body_txt.insert('1.0',
+            self._saved_body.replace('{date}', _dt.today().strftime('%d/%m/%Y'))
+                             .replace('{dimos}', self._dimos_var.get()))
+
+        btn_row = tk.Frame(self, bg=C['bg'])
+        btn_row.pack(side='bottom', pady=10)
+        tk.Button(btn_row, text='Μόνο Excel (χωρίς email)',
+                  bg=C['bg2'], fg=C['hdr_bg'], relief='flat',
+                  font=('Arial', 9), padx=10, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=False)).pack(side='left', padx=4)
+        tk.Button(btn_row, text='▶  Δημιουργία & Αποστολή',
+                  bg=C['btn_bg'], fg=C['btn_fg'], relief='flat',
+                  font=('Arial', 9, 'bold'), padx=14, pady=5, cursor='hand2',
+                  command=lambda: self._execute(send=True)).pack(side='left', padx=4)
+
+        self.after(100, self._load_dimos)
+
+    def _on_dimos_change(self, *_):
+        dimos = self._dimos_var.get()
+        self._subj_var.set(self._saved_subject.replace('{dimos}', dimos))
+        # Ενημέρωση body: αντικατάσταση παλιού δήμου με νέο
+        from datetime import datetime as _dt
+        today = _dt.today().strftime('%d/%m/%Y')
+        self._body_txt.delete('1.0', 'end')
+        self._body_txt.insert('1.0',
+            self._saved_body.replace('{date}', today).replace('{dimos}', dimos))
+
+    def _load_dimos(self):
+        """Φορτώνει τους Δήμους από το stat3_1 zip (col7) ή fallback CSV (col6)."""
+        src_path = self._stat31_path or self._csv_path
+        if not src_path:
+            self._dimos_lbl.config(text='Δεν βρέθηκε αρχείο.', fg='#CC0000')
+            return
+        try:
+            import pandas as pd
+            use_31 = bool(self._stat31_path)
+            df = self._read_zip_csv(src_path, strip_trailing_sep=use_31)
+            col_idx   = 7 if use_31 else 6
+            dimos_col = df.columns[col_idx]
+            dimos_list = sorted(df[dimos_col].dropna().astype(str).str.strip().unique())
+            self._dimos_combo.config(values=dimos_list)
+            if dimos_list:
+                self._dimos_var.set(dimos_list[0])
+            self._dimos_lbl.config(
+                text=f'{len(dimos_list)} δήμοι | {os.path.basename(src_path)}',
+                fg=C['desc'])
+        except Exception as e:
+            self._dimos_lbl.config(text=f'Σφάλμα: {e}', fg='#CC0000')
+
+    # ── Εκτέλεση ─────────────────────────────────────────────────────────────
+
+    def _execute(self, send=True):
+        import json, pandas as pd
+        from datetime import datetime
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        dimos     = self._dimos_var.get().strip()
+        mode      = self._mode_var.get()
+        to_email  = self._to_var.get().strip()
+        subject   = self._subj_var.get().strip()
+        body_text = self._body_txt.get('1.0', 'end-1c')
+        full_body = body_text + '\n\n' + config.email_signature()
+
+        if send and not to_email:
+            messagebox.showwarning('Email', 'Εισάγετε email παραλήπτη.', parent=self)
+            return
+        if not dimos:
+            messagebox.showwarning('Δήμος', 'Επίλεξε Δήμο.', parent=self)
+            return
+        if not self._stat31_path:
+            messagebox.showwarning('Αρχεία',
+                'Δεν βρέθηκε το αρχείο στατιστικού 3.1.\n'
+                'Κατέβασέ το από MySchool (Στατιστικά 3.1).', parent=self)
+            return
+        if not self._csv_path:
+            messagebox.showwarning('Αρχεία',
+                'Δεν βρέθηκε το αρχείο CSV σχολικών μονάδων.\n'
+                'Κατέβασέ το από MySchool (Στατιστικά → Κατάλογος Μονάδων).', parent=self)
+            return
+
+        try:
+            # ── 1. CSV → lookup dict (δευτερεύουσα πηγή, στοιχεία επικοινωνίας) ──
+            # Επιβεβαιωμένα offsets λόγω 1-column shift στα headers από col11:
+            #   col10 = Είδος (τύπος σχολείου)
+            #   col11 = Κωδ. ΥΠΠΘ (αριθμητικός κωδικός)
+            #   col12 = Ονομασία
+            #   col16 = Τηλέφωνο
+            #   col18 = e-mail σχολείου
+            #   col20 = Ταχ. Διεύθυνση
+            #   col48 = Αναστολή (NAI/OXI)
+            #   col55 = Ονομ/μο Διευθυντή
+            #   col58 = Κινητό Διευθυντή
+            #   col59 = Email Διευθυντή
+            #   col60 = Email ΠΣΔ Διευθυντή
+            csv_df = self._read_zip_csv(self._csv_path)
+
+            c_eidos    = csv_df.columns[10]
+            c_code_csv = csv_df.columns[11]
+            c_onoma    = csv_df.columns[12]
+            c_phone    = csv_df.columns[16]
+            c_email    = csv_df.columns[18]
+            c_address  = csv_df.columns[20]
+            c_anast    = csv_df.columns[48]   # Αναστολή (NAI = κλειστό)
+            c_dir_name = csv_df.columns[55]
+            c_dir_mob  = csv_df.columns[58]
+            c_dir_mail = csv_df.columns[59]
+            c_dir_psd  = csv_df.columns[60]
+
+            # Φίλτρο τύπου: Δημοτικά + Νηπιαγωγεία, όχι Ιδιωτικά / Ξένα
+            eidos_ser = csv_df[c_eidos].fillna('').astype(str)
+            mask_type = (
+                (eidos_ser.str.contains('Δημοτικό',    na=False) |
+                 eidos_ser.str.contains('Νηπιαγωγείο', na=False)) &
+                ~eidos_ser.str.contains('Ιδιωτικό', na=False) &
+                ~eidos_ser.str.contains('Ξένο',     na=False)
+            )
+            csv_df = csv_df[mask_type].copy()
+
+            # Φίλτρο Αναστολής: εξαίρεση σχολείων με Αναστολή = NAI
+            csv_df = csv_df[
+                csv_df[c_anast].fillna('').astype(str).str.strip().str.upper() != 'NAI'
+            ].copy()
+
+            # Κατασκευή lookup dict: {clean_code → στοιχεία}
+            csv_df['_code'] = csv_df[c_code_csv].apply(self._clean_code)
+            csv_lookup = {}
+            for _, row in csv_df.iterrows():
+                code = row['_code']
+                if not code:
+                    continue
+                eidos_val   = self._s(row[c_eidos])
+                is_dim      = 'Δημοτικό' in eidos_val
+                eidos_short = (eidos_val
+                               .replace('Ενιαίου Τύπου Ολοήμερο ', '')
+                               .replace('Ολοήμερο ', '')
+                               .strip())
+                csv_lookup[code] = {
+                    'eidos':    eidos_short,
+                    'is_dim':   is_dim,
+                    'onoma':    self._s(row[c_onoma]),
+                    'phone':    self._s(row[c_phone]),
+                    'email':    self._s(row[c_email]),
+                    'address':  self._s(row[c_address]),
+                    'dir_name': self._s(row[c_dir_name]),
+                    'dir_mob':  self._s(row[c_dir_mob]),
+                    'dir_mail': self._s(row[c_dir_mail]),
+                    'dir_psd':  self._s(row[c_dir_psd]),
+                }
+
+            # ── 2. stat3_1 — ΚΥΡΙΑ πηγή (κατανομή ανά τάξη & φύλο) ──────────
+            df31 = self._read_zip_csv(self._stat31_path, strip_trailing_sep=True)
+
+            kwd31  = df31.columns[4]   # Κωδικός σχολείου
+            dim31  = df31.columns[7]   # Δήμος
+            taxh31 = df31.columns[10]  # Τάξη
+            tmhm31 = df31.columns[11]  # Αριθμός Τμημάτων
+            ag31   = df31.columns[12]  # Αγόρια
+            ko31   = df31.columns[13]  # Κορίτσια
+            sy31   = df31.columns[14]  # Σύνολο
+
+            df31['_code'] = df31[kwd31].apply(self._clean_code)
+
+            # Φίλτρο Δήμου
+            df31 = df31[df31[dim31].fillna('').astype(str).str.strip() == dimos].copy()
+
+            # Κράτα μόνο σχολεία που υπάρχουν στο CSV lookup
+            # (αποκλείονται αυτόματα Ιδιωτικά, Ξένα, Αναστολή)
+            df31 = df31[df31['_code'].isin(csv_lookup)].copy()
+
+            if df31.empty:
+                messagebox.showwarning('Αποτέλεσμα',
+                    f'Δεν βρέθηκαν σχολεία στον Δήμο "{dimos}".', parent=self)
+                return
+
+            # Αριθμητικές στήλες
+            for col in [tmhm31, ag31, ko31, sy31]:
+                df31[col] = pd.to_numeric(df31[col], errors='coerce').fillna(0).astype(int)
+
+            # Sorted list κωδικών: Νηπιαγωγεία πρώτα, μετά Δημοτικά, αλφαβητικά
+            unique_codes = df31['_code'].unique()
+            sorted_codes = sorted(unique_codes,
+                key=lambda c: (1 if csv_lookup.get(c, {}).get('is_dim') else 0,
+                               csv_lookup.get(c, {}).get('onoma', '')))
+
+            # ── 3. Δημιουργία Excel ───────────────────────────────────────────
+            today_str  = datetime.today().strftime('%Y%m%d')
+            out_dir    = os.path.join(_docs_base(), f'results_{today_str}')
+            os.makedirs(out_dir, exist_ok=True)
+            dimos_safe = dimos.replace('/', '_').replace('\\', '_')
+            mode_sfx   = 'ανά_τάξη' if mode == 'taxh' else 'ανά_μονάδα'
+            out_path   = os.path.join(
+                out_dir, f'Σχολικές_Μονάδες_{dimos_safe}_{mode_sfx}_{today_str}.xlsx')
+
+            wb  = Workbook()
+            ws  = wb.active
+            ws.title = dimos[:31]
+
+            RED        = 'FF0000'
+            LIGHT_BLUE = 'DCE6F1'
+            LIGHT_RED  = 'FCE4EC'
+            thin   = Side(style='thin', color='CCCCCC')
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            hdr_al = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            ctr_al = Alignment(horizontal='center', vertical='center')
+            lft_al = Alignment(horizontal='left',   vertical='center')
+
+            def _hdr_cell(ws, row, col, value):
+                c = ws.cell(row=row, column=col, value=value)
+                c.font      = Font(name='Arial', bold=True, color='FFFFFF', size=9)
+                c.fill      = PatternFill('solid', start_color=RED)
+                c.alignment = hdr_al
+                c.border    = border
+
+            CLASS_RANK = {c: i for i, c in enumerate(self._CLASS_ORDER)}
+
+            if mode == 'taxh':
+                # ─── Ανά Τάξη ─────────────────────────────────────────────────
+                all_cols = [
+                    'Είδος', 'Ονομασία', 'Τάξη', 'Τμήματα',
+                    'Αγόρια', 'Κορίτσια', 'Σύνολο',
+                    'Τηλέφωνο', 'e-mail σχολείου',
+                    'Ονομ/μο Διευθυντή', 'Κινητό Διευθυντή',
+                    'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή',
+                ]
+
+                for ci, col in enumerate(all_cols, 1):
+                    _hdr_cell(ws, 1, ci, col)
+
+                subtot_fill = PatternFill('solid', start_color=LIGHT_BLUE)
+                grand_fill  = PatternFill('solid', start_color=LIGHT_RED)
+                alt_fill    = PatternFill('solid', start_color='F7F7F7')
+                er = 2
+                tot_ag_g = tot_ko_g = tot_sy_g = 0
+
+                for code in sorted_codes:
+                    info   = csv_lookup.get(code, {})
+                    is_dim = info.get('is_dim', False)
+                    sc_df  = df31[df31['_code'] == code].copy()
+                    if sc_df.empty:
+                        continue
+
+                    sc_df['_rank'] = sc_df[taxh31].apply(
+                        lambda t: CLASS_RANK.get(str(t).strip(), 99))
+                    sc_df = sc_df.sort_values('_rank').reset_index(drop=True)
+
+                    onoma = info.get('onoma', '')
+                    sc_ag = sc_ko = sc_sy = sc_tm = 0
+                    for row_i, (_, crow) in enumerate(sc_df.iterrows()):
+                        taxh = self._s(crow[taxh31])
+                        tm   = int(crow[tmhm31] or 0)
+                        ag   = int(crow[ag31]   or 0)
+                        ko   = int(crow[ko31]   or 0)
+                        sy   = int(crow[sy31]   or 0)
+                        sc_ag += ag; sc_ko += ko; sc_sy += sy; sc_tm += tm
+
+                        # Στοιχεία επικοινωνίας μόνο στην 1η γραμμή
+                        first = row_i == 0
+                        vals = [
+                            info.get('eidos',    '') if first else '',
+                            onoma                    if first else '',
+                            taxh, tm, ag, ko, sy,
+                            info.get('phone',    '') if first else '',
+                            info.get('email',    '') if first else '',
+                            info.get('dir_name', '') if first else '',
+                            info.get('dir_mob',  '') if first else '',
+                            info.get('dir_mail', '') if first else '',
+                            info.get('dir_psd',  '') if first else '',
+                        ]
+
+                        row_fill = alt_fill if row_i % 2 == 1 else None
+                        for ci, val in enumerate(vals, 1):
+                            cell = ws.cell(row=er, column=ci, value=val)
+                            cell.font      = Font(name='Arial', size=9)
+                            cell.alignment = ctr_al if 4 <= ci <= 7 else lft_al
+                            cell.border    = border
+                            if row_fill: cell.fill = row_fill
+                        er += 1
+
+                    # Subtotal μόνο για Δημοτικά (τα Νηπιαγωγεία έχουν 1-2 γραμμές, δεν χρειάζεται)
+                    tot_ag_g += sc_ag; tot_ko_g += sc_ko; tot_sy_g += sc_sy
+                    if is_dim:
+                        for ci in range(1, len(all_cols) + 1):
+                            cell = ws.cell(row=er, column=ci)
+                            cell.font      = Font(name='Arial', size=9, bold=True)
+                            cell.fill      = subtot_fill
+                            cell.border    = border
+                            cell.alignment = ctr_al if 4 <= ci <= 7 else lft_al
+                        ws.cell(row=er, column=2, value=f'Σύνολο {onoma}')
+                        ws.cell(row=er, column=4, value=sc_tm)
+                        ws.cell(row=er, column=5, value=sc_ag)
+                        ws.cell(row=er, column=6, value=sc_ko)
+                        ws.cell(row=er, column=7, value=sc_sy)
+                        er += 1
+
+                # Grand total
+                for ci in range(1, len(all_cols) + 1):
+                    cell = ws.cell(row=er, column=ci)
+                    cell.font      = Font(name='Arial', size=9, bold=True)
+                    cell.fill      = grand_fill
+                    cell.border    = border
+                    cell.alignment = ctr_al if 4 <= ci <= 7 else lft_al
+                ws.cell(row=er, column=2, value='ΓΕΝΙΚΟ ΣΥΝΟΛΟ')
+                ws.cell(row=er, column=5, value=tot_ag_g)
+                ws.cell(row=er, column=6, value=tot_ko_g)
+                ws.cell(row=er, column=7, value=tot_sy_g)
+
+                col_widths = [26, 40, 20, 10, 10, 12, 10, 16, 30, 28, 18, 32, 26]
+                for ci, w in enumerate(col_widths[:len(all_cols)], 1):
+                    ws.column_dimensions[get_column_letter(ci)].width = w
+
+            else:
+                # ─── Ανά Σχολική Μονάδα ──────────────────────────────────────
+                # Ομαδοποίηση stat3_1 ανά σχολείο + επικοινωνία από CSV
+                base_cols = [
+                    'Είδος', 'Ονομασία',
+                    'Τμήματα', 'Αγόρια', 'Κορίτσια', 'Σύνολο',
+                    'Τηλέφωνο', 'e-mail σχολείου', 'Ταχ. Διεύθυνση',
+                    'Ονομ/μο Διευθυντή',
+                ]
+                all_cols = base_cols + [
+                    'Κινητό Διευθυντή', 'Email Διευθυντή', 'Email ΠΣΔ Διευθυντή',
+                ]
+
+                for ci, col in enumerate(all_cols, 1):
+                    _hdr_cell(ws, 1, ci, col)
+
+                alt_fill   = PatternFill('solid', start_color='FFF0F0')
+                tot_ag = tot_ko = tot_sy = tot_tm = 0
+
+                for ri, code in enumerate(sorted_codes):
+                    info  = csv_lookup.get(code, {})
+                    sc_df = df31[df31['_code'] == code]
+                    tm = int(sc_df[tmhm31].sum())
+                    ag = int(sc_df[ag31].sum())
+                    ko = int(sc_df[ko31].sum())
+                    sy = int(sc_df[sy31].sum())
+                    tot_tm += tm; tot_ag += ag; tot_ko += ko; tot_sy += sy
+
+                    vals = [
+                        info.get('eidos',    ''),
+                        info.get('onoma',    ''),
+                        tm, ag, ko, sy,
+                        info.get('phone',    ''),
+                        info.get('email',    ''),
+                        info.get('address',  ''),
+                        info.get('dir_name', ''),
+                        info.get('dir_mob',  ''),
+                        info.get('dir_mail', ''),
+                        info.get('dir_psd',  ''),
+                    ]
+
+                    fill = alt_fill if ri % 2 == 1 else None
+                    er   = ri + 2
+                    for ci, val in enumerate(vals, 1):
+                        cell = ws.cell(row=er, column=ci, value=val)
+                        cell.font      = Font(name='Arial', size=9)
+                        cell.alignment = ctr_al if 3 <= ci <= 6 else lft_al
+                        cell.border    = border
+                        if fill: cell.fill = fill
+
+                # Σειρά ΣΥΝΟΛΟ
+                tot_row = len(sorted_codes) + 2
+                for ci in range(1, len(all_cols) + 1):
+                    cell = ws.cell(row=tot_row, column=ci)
+                    cell.font      = Font(name='Arial', size=9, bold=True)
+                    cell.fill      = PatternFill('solid', start_color=LIGHT_BLUE)
+                    cell.border    = border
+                    cell.alignment = ctr_al if 3 <= ci <= 6 else lft_al
+                ws.cell(row=tot_row, column=2, value='ΣΥΝΟΛΟ')
+                ws.cell(row=tot_row, column=3, value=tot_tm)
+                ws.cell(row=tot_row, column=4, value=tot_ag)
+                ws.cell(row=tot_row, column=5, value=tot_ko)
+                ws.cell(row=tot_row, column=6, value=tot_sy)
+
+                col_widths = [26, 40, 10, 10, 12, 10, 16, 30, 30, 28, 18, 32, 26]
+                for ci, w in enumerate(col_widths[:len(all_cols)], 1):
+                    ws.column_dimensions[get_column_letter(ci)].width = w
+
+            ws.row_dimensions[1].height = 28
+            ws.freeze_panes = 'A2'
+            wb.save(out_path)
+            school_count = len(sorted_codes)
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            messagebox.showerror('Σφάλμα', str(e), parent=self)
+            return
+
+        # ── Αποθήκευση ρυθμίσεων ─────────────────────────────────────────────
+        s = _load_local_settings()
+        s[self._SETTINGS_KEY] = {
+            'subject':     self._saved_subject,
+            'body':        self._saved_body,
+            'dimos_email': to_email,
+        }
+        path_s = _get_local_settings_path()
+        os.makedirs(os.path.dirname(path_s), exist_ok=True)
+        with open(path_s, 'w', encoding='utf-8') as f:
+            json.dump(s, f, ensure_ascii=False, indent=2)
+        if not send:
+            messagebox.showinfo('Έτοιμο',
+                f'Αρχείο αποθηκεύτηκε:\n{out_path}\n\nΣχολεία: {school_count}',
+                parent=self)
+            try:
+                import subprocess; subprocess.Popen(['explorer', out_dir])
+            except Exception:
+                pass
+            self.destroy()
+            return
+
+        try:
+            from core.framework import send_email
+            send_email(config, to_email, subject, full_body, out_path)
+            messagebox.showinfo('Αποστολή',
+                f'Email στάλθηκε: {to_email}\n\nΑρχείο: {out_path}\nΣχολεία: {school_count}',
+                parent=self)
+            try:
+                import subprocess; subprocess.Popen(['explorer', out_dir])
+            except Exception:
+                pass
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror('Σφάλμα αποστολής', str(e), parent=self)
 
     def _clear(self):
         for w in self.winfo_children():

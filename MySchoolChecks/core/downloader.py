@@ -34,7 +34,11 @@ from pathlib import Path
 # direct_export=True → σελίδα χωρίς αναζήτηση/grid, απευθείας εξαγωγή
 REPORTS = [
     ('topoth', 'Τοποθετήσεις εκπαιδευτικών',   '/Worker.list.myEmplUnit.aspx',                                               'Topothetiseis',       30, 90, False, 'a.hint_search', '#ctl00_ContentData_gridResults_StatusBar_btnExport'),
-    ('2.1',    'Κατάλογος σχολείων',            '/Statistics/Management.stat.infoUnits.aspx?parentId=3',                     'gridResults',         30, 60, False),
+    ('2.1',    'Κατάλογος σχολείων',             '/Statistics/Management.stat.infoUnits.aspx?parentId=3',                     'gridResults',         30, 60, False),
+    ('2.2',    'Εκτεταμένα Στοιχεία Σχολ. Μον.', '/Statistics/Management.stat.infoAdvUnits.aspx?parentId=3',                  'stat2_2',             30, 90, False),
+    # 3.1: Πριν την αναζήτηση πρέπει να τσεκαριστούν τα checkboxes ομαδοποίησης
+    ('3.1',  'Κατανομή μαθητών ανά τάξη',      '/Statistics/Management.stat.sumStudGroupGP.aspx?parentId=4',                 'stat3_1',             60, 120, False, None, None,
+             ['Είδος σχολείου', 'Τύπος σχολείου', 'Σχολική Μονάδα', 'Τάξη']),
     ('4.1',  'Οργανικές τοποθετήσεις',         '/Statistics/Management.stat.wrkCatalogue.aspx?parentId=5',                   'stat4_1',             60, 60, False),
     ('4.2',  'Αποσπασμένοι εκπαιδευτικοί',     '/Statistics/Management.stat.wrkDetachedCatalogue.aspx?parentId=5',           'stat4_2',             60, 60, False),
     ('4.8',  'Ωράριο εκπαιδευτικών',           '/Statistics/Management.stat.TchHoursCatalogue.aspx?parentId=5',              '4.8_Ωραριο',          30, 40, False),
@@ -52,6 +56,8 @@ REPORTS = [
 FILE_PREFIX_MAP = {
     'topoth': 'Topothetiseis',
     '2.1'  : 'gridResults',
+    '2.2'  : 'stat2_2',
+    '3.1'  : 'stat3_1',
     '4.1'  : 'stat4_1',
     '4.2'  : 'stat4_2',
     '4.8' : '4.8_',
@@ -275,9 +281,10 @@ class MySchoolDownloader:
 
             for report_entry in target_reports:
                 rid, label, url_path, fname_base, wait_search, wait_dl = report_entry[:6]
-                direct_export  = report_entry[6] if len(report_entry) > 6 else False
-                custom_search  = report_entry[7] if len(report_entry) > 7 else None
-                custom_export  = report_entry[8] if len(report_entry) > 8 else None
+                direct_export      = report_entry[6] if len(report_entry) > 6 else False
+                custom_search      = report_entry[7] if len(report_entry) > 7 else None
+                custom_export      = report_entry[8] if len(report_entry) > 8 else None
+                pre_search_labels  = report_entry[9] if len(report_entry) > 9 else None
 
                 self._log(f'[{rid}] {label}...')
                 try:
@@ -332,6 +339,38 @@ class MySchoolDownloader:
                         pass
 
                     if not direct_export:
+                        # ── Τσεκάρισμα checkboxes ομαδοποίησης (πριν αναζήτηση) ──────
+                        if pre_search_labels:
+                            self._log(f'  [{rid}] Τσεκάρισμα επιλογών ομαδοποίησης...')
+                            for lbl_text in pre_search_labels:
+                                try:
+                                    # Βρες το <label> με το κείμενο
+                                    lbl_el = WebDriverWait(driver, 10).until(
+                                        EC.presence_of_element_located((By.XPATH,
+                                            f'//label[normalize-space(text())="{lbl_text}"]'))
+                                    )
+                                    lbl_for = lbl_el.get_attribute('for')
+                                    if lbl_for:
+                                        # label έχει for= → click το input
+                                        chk = driver.find_element(By.ID, lbl_for)
+                                        driver.execute_script('arguments[0].click();', chk)
+                                    else:
+                                        # DevExpress/ASP.NET: ψάξε input ή dx-span στον ίδιο container
+                                        parent_el = lbl_el.find_element(By.XPATH, '..')
+                                        try:
+                                            chk = parent_el.find_element(By.XPATH,
+                                                './/input[@type="checkbox"] | '
+                                                'preceding-sibling::*[contains(@class,"dxI") or '
+                                                'contains(@class,"dx-checkbox")]')
+                                            driver.execute_script('arguments[0].click();', chk)
+                                        except Exception:
+                                            # Fallback: click the label itself
+                                            driver.execute_script('arguments[0].click();', lbl_el)
+                                    time.sleep(0.4)
+                                    self._log(f'  [{rid}]   ✓ "{lbl_text}"')
+                                except Exception as _ck_err:
+                                    self._log(f'  [{rid}]   ⚠ "{lbl_text}" δεν βρέθηκε: {_ck_err}')
+
                         # Κουμπί Αναζήτησης
                         search_clicked = False
                         if custom_search:
