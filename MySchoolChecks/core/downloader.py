@@ -4,14 +4,19 @@ core/downloader.py
 Αυτόματο κατέβασμα αρχείων από το MySchool μέσω Selenium.
 
 Αρχεία που κατεβαίνουν:
-  4.8  — Ωράριο εκπαιδευτικών
-  4.9  — Παρόντες εκπαιδευτικοί
-  4.11 — Λεπτομέρειες μείωσης ωραρίου
-  4.12 — Λεπτομέρειες συμπλήρωσης ωραρίου
-  4.20 — Άδειες Άνευ Αποδοχών
-  4.21 — Άδειες (πλην ΑΑ)
-  8.2  — Επιβεβαίωση δεδομένων σχολείων
-  ady  — Αδυνατούντες ανά ειδικότητα (άμεση εξαγωγή)
+  topoth — Τοποθετήσεις εκπαιδευτικών
+  2.1    — Κατάλογος σχολικών μονάδων
+  4.1    — Οργανικές τοποθετήσεις εκπαιδευτικών
+  4.2    — Αποσπασμένοι εκπαιδευτικοί
+  4.8    — Ωράριο εκπαιδευτικών
+  4.9    — Παρόντες εκπαιδευτικοί
+  4.11   — Λεπτομέρειες μείωσης ωραρίου
+  4.12   — Λεπτομέρειες συμπλήρωσης ωραρίου
+  4.16   — Αιτιολόγηση απουσίας εκπαιδευτικών
+  4.20   — Άδειες Άνευ Αποδοχών
+  4.21   — Άδειες (πλην ΑΑ)
+  8.2    — Επιβεβαίωση δεδομένων σχολείων
+  ady    — Αδυνατούντες ανά ειδικότητα (άμεση εξαγωγή)
 
 Χρήση:
   from core.downloader import MySchoolDownloader
@@ -28,22 +33,32 @@ from pathlib import Path
 # (report_id, label, url_path, fname_base, wait_search, wait_dl, direct_export)
 # direct_export=True → σελίδα χωρίς αναζήτηση/grid, απευθείας εξαγωγή
 REPORTS = [
-    ('4.8',  'Ωράριο εκπαιδευτικών',          '/Statistics/Management.stat.TchHoursCatalogue.aspx?parentId=5',       '4.8_Ωραριο',          30, 40, False),
-    ('4.9',  'Παρόντες εκπαιδευτικοί',         '/Statistics/Management.stat.TchHoursCatalogueUnqWrk.aspx?parentId=5', '4.9_Παροντες',        60, 40, False),
-    ('4.11', 'Μείωση ωραρίου',                  '/Statistics/Management.stat.MeiwseisCatalogue.aspx?parentId=5',       '4.11_Meiwseis',       30, 40, False),
-    ('4.12', 'Συμπλήρωση ωραρίου',             '/Statistics/Management.stat.SymplirwseisCatalogue.aspx?parentId=5',   '4.12_Symplirwseis',   30, 40, False),
-    ('4.20', 'Άδειες Άνευ Αποδοχών',           '/Statistics/Management.stat.NoCalcSrvLeaveStats.aspx?parentId=5',     '4.20_Adeies_AA',      30, 40, False),
-    ('4.21', 'Άδειες (πλην ΑΑ)',               '/Statistics/Management.stat.LeavesPerPFU.aspx?parentId=5',            '4.21_Adeies',         30, 40, False),
-    ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',    '8.2_Epivevaiwsi',     30, 60, False),
-    ('ady',  'Αδυνατούντες ανά ειδικότητα',    '/Worker.add.incapable.aspx',                                          'Adynatountes',        10, 40, True),
+    ('topoth', 'Τοποθετήσεις εκπαιδευτικών',   '/Worker.list.myEmplUnit.aspx',                                               'Topothetiseis',       30, 90, False, 'a.hint_search', '#ctl00_ContentData_gridResults_StatusBar_btnExport'),
+    ('2.1',    'Κατάλογος σχολείων',            '/Statistics/Management.stat.infoUnits.aspx?parentId=3',                     'gridResults',         30, 60, False),
+    ('4.1',  'Οργανικές τοποθετήσεις',         '/Statistics/Management.stat.wrkCatalogue.aspx?parentId=5',                   'stat4_1',             60, 60, False),
+    ('4.2',  'Αποσπασμένοι εκπαιδευτικοί',     '/Statistics/Management.stat.wrkDetachedCatalogue.aspx?parentId=5',           'stat4_2',             60, 60, False),
+    ('4.8',  'Ωράριο εκπαιδευτικών',           '/Statistics/Management.stat.TchHoursCatalogue.aspx?parentId=5',              '4.8_Ωραριο',          30, 40, False),
+    ('4.9',  'Παρόντες εκπαιδευτικοί',         '/Statistics/Management.stat.TchHoursCatalogueUnqWrk.aspx?parentId=5',       '4.9_Παροντες',        60, 40, False),
+    ('4.11', 'Μείωση ωραρίου',                  '/Statistics/Management.stat.MeiwseisCatalogue.aspx?parentId=5',              '4.11_Meiwseis',       30, 40, False),
+    ('4.12', 'Συμπλήρωση ωραρίου',             '/Statistics/Management.stat.SymplirwseisCatalogue.aspx?parentId=5',          '4.12_Symplirwseis',   30, 40, False),
+    ('4.16', 'Αιτιολόγηση απουσίας',           '/Statistics/Management.stat.wrkAbsenteesFromUnitCatalogue.aspx?parentId=5', 'stat4_16',            60, 60, False),
+    ('4.20', 'Άδειες Άνευ Αποδοχών',           '/Statistics/Management.stat.NoCalcSrvLeaveStats.aspx?parentId=5',            '4.20_Adeies_AA',      30, 40, False),
+    ('4.21', 'Άδειες (πλην ΑΑ)',               '/Statistics/Management.stat.LeavesPerPFU.aspx?parentId=5',                   '4.21_Adeies',         30, 40, False),
+    ('8.2',  'Επιβεβαίωση δεδομένων',          '/Statistics/Management.stat.LastConfirmDateUnits.aspx?parentId=9',           '8.2_Epivevaiwsi',     30, 60, False),
+    ('ady',  'Αδυνατούντες ανά ειδικότητα',    '/Worker.add.incapable.aspx',                                                  'Adynatountes',        10, 40, True),
 ]
 
 # Mapping: report_id → prefix ονόματος αποθηκευμένου αρχείου
 FILE_PREFIX_MAP = {
+    'topoth': 'Topothetiseis',
+    '2.1'  : 'gridResults',
+    '4.1'  : 'stat4_1',
+    '4.2'  : 'stat4_2',
     '4.8' : '4.8_',
     '4.9' : '4.9_',
     '4.11': '4.11_',
     '4.12': '4.12_',
+    '4.16': 'stat4_16',
     '4.20': '4.20_',
     '4.21': '4.21_',
     '8.2' : '8.2_',
@@ -260,7 +275,9 @@ class MySchoolDownloader:
 
             for report_entry in target_reports:
                 rid, label, url_path, fname_base, wait_search, wait_dl = report_entry[:6]
-                direct_export = report_entry[6] if len(report_entry) > 6 else False
+                direct_export  = report_entry[6] if len(report_entry) > 6 else False
+                custom_search  = report_entry[7] if len(report_entry) > 7 else None
+                custom_export  = report_entry[8] if len(report_entry) > 8 else None
 
                 self._log(f'[{rid}] {label}...')
                 try:
@@ -315,26 +332,42 @@ class MySchoolDownloader:
                         pass
 
                     if not direct_export:
-                        # Κουμπί Αναζήτησης — jQuery click
-                        try:
-                            WebDriverWait(driver, wait_search).until(
-                                EC.presence_of_element_located((
-                                    By.NAME, 'ctl00$cntStats$btnSubmit'
-                                ))
-                            )
-                            self._log(f'  [{rid}] Αναζήτηση...')
-                            driver.execute_script(
-                                '$("input[name=\'ctl00$cntStats$btnSubmit\']").click();'
-                            )
-                        except TimeoutException:
-                            self._log(f'  [{rid}] Κουμπί αναζήτησης δεν βρέθηκε — προσπάθεια εξαγωγής...')
+                        # Κουμπί Αναζήτησης
+                        search_clicked = False
+                        if custom_search:
+                            # Custom CSS selector (π.χ. topoth: 'a.hint_search')
+                            try:
+                                el = WebDriverWait(driver, wait_search).until(
+                                    EC.element_to_be_clickable((By.CSS_SELECTOR, custom_search))
+                                )
+                                self._log(f'  [{rid}] Αναζήτηση (custom: {custom_search})...')
+                                driver.execute_script('arguments[0].click();', el)
+                                search_clicked = True
+                            except TimeoutException:
+                                self._log(f'  [{rid}] Custom κουμπί αναζήτησης δεν βρέθηκε.')
+                        else:
+                            # Standard ASP.NET submit button
+                            try:
+                                WebDriverWait(driver, wait_search).until(
+                                    EC.presence_of_element_located((
+                                        By.NAME, 'ctl00$cntStats$btnSubmit'
+                                    ))
+                                )
+                                self._log(f'  [{rid}] Αναζήτηση...')
+                                driver.execute_script(
+                                    '$("input[name=\'ctl00$cntStats$btnSubmit\']").click();'
+                                )
+                                search_clicked = True
+                            except TimeoutException:
+                                self._log(f'  [{rid}] Κουμπί αναζήτησης δεν βρέθηκε — προσπάθεια εξαγωγής...')
 
                         # Περίμενε να φορτώσουν τα αποτελέσματα (πρώτη γραμμή grid)
                         try:
                             self._log(f'  [{rid}] Αναμονή αποτελεσμάτων...')
                             WebDriverWait(driver, wait_search).until(
                                 EC.presence_of_element_located((
-                                    By.ID, 'ctl00_cntStats_gridResults_DXDataRow0'
+                                    By.XPATH,
+                                    '//*[contains(@id,"DXDataRow0") or contains(@id,"gridResults_DXDataRow0")]'
                                 ))
                             )
                             self._log(f'  [{rid}] Αποτελέσματα φορτώθηκαν.')
@@ -344,9 +377,46 @@ class MySchoolDownloader:
                         self._log(f'  [{rid}] Άμεση εξαγωγή (χωρίς αναζήτηση).')
                         time.sleep(2)
 
-                    # Κουμπί Εξαγωγής — jQuery click
+                    # Κουμπί Εξαγωγής
                     # Πρώτα δοκιμάζουμε γνωστά ονόματα, μετά fallback σε οποιοδήποτε κουμπί εξαγωγής
                     try:
+                        # Custom export selector (π.χ. topoth)
+                        if custom_export:
+                            try:
+                                export_el = WebDriverWait(driver, wait_dl).until(
+                                    EC.element_to_be_clickable((By.CSS_SELECTOR, custom_export))
+                                )
+                                self._log(f'  [{rid}] Εξαγωγή (custom: {custom_export})...')
+                                before_files = set(os.listdir(self.dest_dir))
+                                driver.execute_script('arguments[0].click();', export_el)
+                                # Αναμονή αρχείου
+                                WebDriverWait(driver, wait_dl).until(
+                                    lambda d: bool(
+                                        set(os.listdir(self.dest_dir)) - before_files - {
+                                            f for f in set(os.listdir(self.dest_dir)) - before_files
+                                            if f.endswith('.crdownload') or f.endswith('.tmp')
+                                        }
+                                    )
+                                )
+                                time.sleep(2)
+                                new_files = {f for f in set(os.listdir(self.dest_dir)) - before_files
+                                             if not f.endswith('.crdownload') and not f.endswith('.tmp')}
+                                if new_files:
+                                    raw = os.path.join(self.dest_dir, sorted(new_files)[-1])
+                                    if raw.endswith('.zip'):
+                                        raw = self._extract_zip(raw)
+                                    ext   = os.path.splitext(raw)[1]
+                                    final = os.path.join(self.dest_dir, fname_base + ext)
+                                    if raw != final:
+                                        shutil.move(raw, final)
+                                    results[rid] = final
+                                    self._log(f'  [{rid}] OK → {os.path.basename(final)}')
+                                else:
+                                    self._log(f'  [{rid}] ΠΡΟΣΟΧΗ: Δεν βρέθηκε νέο αρχείο.')
+                                continue  # επόμενο report
+                            except TimeoutException:
+                                self._log(f'  [{rid}] Custom export δεν βρέθηκε — fallback...')
+
                         KNOWN_EXPORT_NAMES = [
                             'ctl00$cntStats$btnCSVExport',
                             'ctl00$cntStats$btnToExcel',

@@ -640,9 +640,17 @@ class DownloadDialog(tk.Toplevel):
                      bg=C['bg'], fg=C['desc'], font=('Arial', 8, 'italic')).pack(anchor='w', pady=(0,8))
 
         # Επιλογή αρχείων
-        tk.Label(body, text='Επιλέξτε αρχεία για λήψη:',
+        hdr_row = tk.Frame(body, bg=C['bg'])
+        hdr_row.pack(fill='x', pady=(0,6))
+        tk.Label(hdr_row, text='Επιλέξτε αρχεία για λήψη:',
                  bg=C['bg'], fg=C['hdr_bg'],
-                 font=('Arial', 9, 'bold')).pack(anchor='w', pady=(0,6))
+                 font=('Arial', 9, 'bold')).pack(side='left')
+        tk.Button(hdr_row, text='Όλα',
+                  bg=C['bg2'], fg=C['hdr_bg'],
+                  font=('Arial', 8), relief='flat', padx=6, pady=1,
+                  cursor='hand2',
+                  command=lambda: [v.set(True) for v in self._report_vars.values()]
+                  ).pack(side='left', padx=(10,0))
 
         self._report_vars = {}
         grid = tk.Frame(body, bg=C['bg'])
@@ -650,8 +658,7 @@ class DownloadDialog(tk.Toplevel):
 
         for i, (rid, label, *_) in enumerate(REPORTS):
             exists = rid in already_have
-            # Αποεπιλογή αν υπάρχει ήδη, αλλά ο χρήστης μπορεί να το αλλάξει
-            var = tk.BooleanVar(value=not exists)
+            var = tk.BooleanVar(value=False)
             self._report_vars[rid] = var
             row, col = divmod(i, 2)
             prefix   = '' if rid == 'ady' else f'{rid} — '
@@ -1533,6 +1540,21 @@ class EidikotitaDialog(tk.Toplevel):
         # Όταν αλλάζει η ειδικότητα → ενημέρωσε το θέμα
         self._spec_var.trace_add('write', self._on_spec_change)
 
+        # ── Στήλες εξόδου ────────────────────────────────────────────────────
+        tk.Label(self, text='Στήλες εξόδου:', bg=C['bg'], fg=C['hdr_bg'],
+                 font=('Arial', 9, 'bold'), anchor='w').pack(fill='x', padx=18, pady=(6, 2))
+
+        col_frame = tk.Frame(self, bg=C['bg'])
+        col_frame.pack(fill='x', padx=18, pady=(0, 6))
+
+        self._col_vars = {}
+        for col_name in ('Email στο ΠΣΔ', 'Email', 'Κινητό'):
+            var = tk.BooleanVar(value=True)
+            self._col_vars[col_name] = var
+            tk.Checkbutton(col_frame, text=col_name, variable=var,
+                           bg=C['bg'], font=('Arial', 9),
+                           activebackground=C['bg']).pack(side='left', padx=(0, 12))
+
         # ── Email ─────────────────────────────────────────────────────────────
         pad = dict(padx=18, pady=2)
 
@@ -1897,6 +1919,10 @@ class EidikotitaDialog(tk.Toplevel):
             spec_safe = specialty.replace('/', '_').replace('\\', '_')
             out_path  = os.path.join(out_dir, f'Εκπαιδευτικοί_{spec_safe}_{today_str}.xlsx')
 
+            # Φιλτράρισμα στηλών βάσει επιλογής χρήστη
+            _disabled = {c for c, v in getattr(self, '_col_vars', {}).items() if not v.get()}
+            active_cols = [c for c in self._OUT_COLS if c not in _disabled]
+
             wb = Workbook()
             ws = wb.active
             ws.title = specialty[:31]
@@ -1908,7 +1934,7 @@ class EidikotitaDialog(tk.Toplevel):
             row_align = Alignment(horizontal='left',   vertical='center')
 
             # Επικεφαλίδες — κόκκινο φόντο, λευκό bold
-            for ci, col in enumerate(self._OUT_COLS, 1):
+            for ci, col in enumerate(active_cols, 1):
                 cell = ws.cell(row=1, column=ci, value=col)
                 cell.font      = Font(name='Arial', bold=True, color='FFFFFF', size=9)
                 cell.fill      = PatternFill('solid', start_color=RED)
@@ -1919,7 +1945,7 @@ class EidikotitaDialog(tk.Toplevel):
             alt_fill = PatternFill('solid', start_color='FFF0F0')
             for ri, row in out.iterrows():
                 is_absent = bool(row.get('_absent', False))
-                for ci, col in enumerate(self._OUT_COLS, 1):
+                for ci, col in enumerate(active_cols, 1):
                     val = row.get(col, '')
                     if pd.isna(val):
                         val = ''
@@ -1934,7 +1960,7 @@ class EidikotitaDialog(tk.Toplevel):
                     cell.border    = border
 
             # Πλάτη στηλών
-            for ci, col in enumerate(self._OUT_COLS, 1):
+            for ci, col in enumerate(active_cols, 1):
                 vals = [str(out.iloc[r][col]) for r in range(min(len(out), 50))
                         if col in out.columns and not pd.isna(out.iloc[r][col])]
                 w = max([len(col)] + [len(v) for v in vals]) if vals else len(col)
