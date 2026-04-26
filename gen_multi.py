@@ -1,4 +1,5 @@
-import os, glob, zipfile, io
+import os, glob, zipfile, io, warnings
+warnings.filterwarnings('ignore', message='.*file size.*not 512.*sector size.*')
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side

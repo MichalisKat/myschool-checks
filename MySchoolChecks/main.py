@@ -4,7 +4,8 @@ main.py
 Κεντρικό σημείο εισόδου — MySchool Αυτοματισμοί.
 """
 
-import sys, os, importlib, threading, queue, time
+import sys, os, importlib, threading, queue, time, warnings
+warnings.filterwarnings('ignore', message='.*file size.*not 512.*sector size.*')
 
 # DEBUG: Καταγραφή crashes σε αρχείο
 def _emergency_log(exc_type, exc_val, exc_tb):
