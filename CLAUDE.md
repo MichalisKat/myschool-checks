@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 0.9.0 (beta)
+**Τρέχουσα έκδοση:** 0.9.4 (beta)
 
 ---
 
@@ -15,8 +15,8 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 ```
 myschool-checks/
 ├── MySchoolChecks/
-│   ├── main.py              # Κύριο αρχείο — UI, splash, settings, load_checks()
-│   ├── config.py            # Ρυθμίσεις — φορτώνει JSON + keyring
+│   ├── main.py              # Κύριο αρχείο — UI, splash, settings, load_checks(), EidikotitaDialog
+│   ├── config.py            # Ρυθμίσεις — φορτώνει JSON + keyring, APP_VERSION
 │   ├── encryption.py        # Keyring wrapper — store/get/delete credentials
 │   ├── setup_credentials.py # CLI wizard πρώτης ρύθμισης credentials
 │   ├── app.ico              # Εικονίδιο εφαρμογής (6 μεγέθη: 16-256px)
@@ -24,11 +24,12 @@ myschool-checks/
 │   ├── checks/              # Ένα .py ανά έλεγχο
 │   └── core/
 │       ├── framework.py     # run_check(), get_downloaded_file(), send_email()
-│       └── downloader.py    # MySchoolDownloader, get_downloads_dir()
+│       └── downloader.py    # MySchoolDownloader, REPORTS, get_downloads_dir()
+├── gen_multi.py             # Standalone script — batch εξαγωγή πολλών ειδικοτήτων (dev/test)
 ├── MySchoolChecks_Odigos.pdf  # Οδηγός χρήστη (ReportLab, ελληνικά)
 ├── MySchoolChecks.spec      # PyInstaller spec — ΜΗΝ το διαγράψεις
 ├── build_executable.bat     # Φτιάχνει dist\MySchoolChecks.exe
-├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.0-setup.exe
+├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.4-setup.exe
 ├── myschool-checks.nsi      # NSIS script για τον installer
 ├── SECURITY.md              # Τεκμηρίωση ασφάλειας credentials
 └── CLAUDE.md                # Αυτό το αρχείο
@@ -81,6 +82,29 @@ myschool-checks/
 - `CHECK_TITLE` — τίτλος
 - `run()` — κύρια συνάρτηση που καλεί `framework.run_check()`
 
+### EidikotitaDialog (main.py)
+Εργαλείο εξαγωγής εκπαιδευτικών ανά ειδικότητα — ανεξάρτητο από το σύστημα checks.
+- Κουμπί toolbar: **«📋 Εκπ/κοί ανά Ειδικότητα»**
+- Πηγές: Topothetiseis + gridResults (2.1) + stat4_1 + stat4_2 + stat4_16
+- Φίλτρα: εξαιρεί ΠΑΡΗΛΘΕ, Ξένο Σχολείο, Ιδ.Δικαίου, Υπερωριακά, Μερική Διάθεση, Τοποθέτηση Διοικητικού, μόνο Α΄ ΘΕΣΣΑΛΟΝΙΚΗΣ Π.Ε.
+- Χρήση `str.contains` αντί `isin` γιατί οι τιμές έχουν παρενθετικά suffixes
+- AFM join: `.str.zfill(9)` και στις δύο πλευρές (Topothetiseis αποθηκεύει ως float)
+- stat4_*/stat4_16: 1-column shift στα headers — χρήση `df.columns[N]` με absolute index
+- Επιλογή στηλών εξόδου (checkboxes): Email ΠΣΔ, Email, Κινητό
+- Απόντες: κόκκινο font, ΑΠΟΥΣΙΑ/Έως εμφανίζονται μόνο για αυτούς
+- Αλφαβητική ταξινόμηση κατά Επώνυμο
+
+### DownloadDialog (main.py)
+- Checkboxes: ξεκινούν απενεργοποιημένα by default (ο χρήστης επιλέγει)
+- Κουμπί «Όλα» τσεκάρει όλα μαζί
+- Αρχεία που υπάρχουν ήδη εμφανίζονται με ✓ και πράσινο χρώμα
+
+### downloader.py — REPORTS tuple
+Κάθε entry: `(rid, label, url_path, fname_base, wait_search, wait_dl, direct_export, custom_search?, custom_export?)`
+- `custom_search`: CSS selector για κουμπί αναζήτησης (π.χ. `'a.hint_search'` για topoth)
+- `custom_export`: CSS selector για κουμπί εξαγωγής (π.χ. `'#ctl00_ContentData_gridResults_StatusBar_btnExport'` για topoth)
+- Grid wait: flexible XPath `//*[contains(@id,"DXDataRow0")]` — λειτουργεί για όλες τις σελίδες
+
 ---
 
 ## Διαδικασία build & release
@@ -112,9 +136,9 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `0.9.0` (beta)
+- Τρέχουσα: `0.9.4` (beta)
 - Stable release: `1.0.0` (μετά από testing)
-- Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`) και στο `compile_installer.bat`
+- Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
 ### Backup credentials
 Το `build_executable.bat` κρατάει αυτόματα τα credentials:
@@ -127,12 +151,14 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 
 | Εργαλείο | Path |
 |---|---|
-| Python 3.11 | `C:\Users\katsi\AppData\Local\Programs\Python\Python311\` |
-| PyInstaller | `C:\Users\katsi\AppData\Local\Programs\Python\Python311\Scripts\pyinstaller.exe` |
+| Python 3.14 | `C:\Users\mkatsirntakis\AppData\Local\Python\pythoncore-3.14-64\` |
+| PyInstaller | `pyinstaller` (στο PATH) |
 | keyring | `pip install keyring` (απαιτείται για build) |
 | NSIS | `C:\Program Files (x86)\NSIS\makensis.exe` |
 | Git | Στο PATH |
 | GitHub CLI | Στο PATH (`gh auth login` αν δεν είναι συνδεδεμένο) |
+
+> **Σημείωση build:** Το `build_executable.bat` δεν τρέχει σωστά από bash/Claude — χρησιμοποίησε `pyinstaller MySchoolChecks.spec` απευθείας και μετά `makensis myschool-checks.nsi`.
 
 ---
 
@@ -155,7 +181,9 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 
 - [ ] Beta testing → stable release v1.0.0
 - [ ] MSIX package για Microsoft Store (αναβλήθηκε — χρειάζεται Windows SDK + Partner Center)
-- [ ] Αν χρειαστεί νέα έκδοση: αλλαγή `APP_VERSION` στο `.nsi` και όνομα setup στο `compile_installer.bat`
+- [ ] Αν χρειαστεί νέα έκδοση: αλλαγή `APP_VERSION` στο `.nsi`, `compile_installer.bat` **και** `config.py`
+- [ ] Επαλήθευση λήψης Τοποθετήσεων με νέα custom search/export selectors (v0.9.4)
+- [ ] Ενημέρωση PDF οδηγού χρήστη (χειροκίνητα με ReportLab)
 
 ---
 
