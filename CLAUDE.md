@@ -6,7 +6,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 
 **Repo:** https://github.com/MichalisKat/myschool-checks  
 **Υπεύθυνος:** Μιχάλης Κατσιρντάκης  
-**Τρέχουσα έκδοση:** 0.9.4 (beta)
+**Τρέχουσα έκδοση:** 0.9.5 (beta)
 
 ---
 
@@ -15,7 +15,7 @@ Python εφαρμογή Windows για αυτοματοποιημένους ελ
 ```
 myschool-checks/
 ├── MySchoolChecks/
-│   ├── main.py              # Κύριο αρχείο — UI, splash, settings, load_checks(), EidikotitaDialog
+│   ├── main.py              # Κύριο αρχείο — UI, splash, settings, load_checks(), EidikotitaDialog, MonadaDialog
 │   ├── config.py            # Ρυθμίσεις — φορτώνει JSON + keyring, APP_VERSION
 │   ├── encryption.py        # Keyring wrapper — store/get/delete credentials
 │   ├── setup_credentials.py # CLI wizard πρώτης ρύθμισης credentials
@@ -29,7 +29,7 @@ myschool-checks/
 ├── MySchoolChecks_Odigos.pdf  # Οδηγός χρήστη (ReportLab, ελληνικά)
 ├── MySchoolChecks.spec      # PyInstaller spec — ΜΗΝ το διαγράψεις
 ├── build_executable.bat     # Φτιάχνει dist\MySchoolChecks.exe
-├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.4-setup.exe
+├── compile_installer.bat    # Φτιάχνει myschool-checks-0.9.5-setup.exe
 ├── myschool-checks.nsi      # NSIS script για τον installer
 ├── SECURITY.md              # Τεκμηρίωση ασφάλειας credentials
 └── CLAUDE.md                # Αυτό το αρχείο
@@ -99,11 +99,33 @@ myschool-checks/
 - Κουμπί «Όλα» τσεκάρει όλα μαζί
 - Αρχεία που υπάρχουν ήδη εμφανίζονται με ✓ και πράσινο χρώμα
 
+### MonadaDialog (main.py)
+Εργαλείο εξαγωγής στοιχείων σχολικών μονάδων ανά Δήμο — ανεξάρτητο από το σύστημα checks.
+- Κουμπί toolbar: **«🏫 Σχολικές Μονάδες»**
+- Πηγές: stat3_1 (primary — κατανομή τάξεων) + CSV/stat2_2 (secondary — επικοινωνία, Διευθυντής)
+- Φίλτρα: Δημοτικά + Νηπιαγωγεία, εξαιρεί Ιδιωτικά/Ξένα και Αναστολή=NAI (col48 CSV)
+- **CSV 1-column shift**: col10=Είδος, col11=Κωδ., col12=Ονομασία, col16=Τηλ., col18=email, col20=Διεύθ., col48=Αναστολή, col55=Διευθυντής, col58=Κινητό, col59=Email, col60=Email ΠΣΔ
+- stat3_1 trailing semicolons: `strip_trailing_sep=True` στο `_read_zip_csv`
+- Join: clean_code (lstrip '0', strip `="..."`) στα codes stat3_1 col4 ↔ CSV col11
+- **Ανά Τάξη**: flat rows + subtotal μόνο για Δημοτικά (Νηπιαγωγεία χωρίς subtotal)
+- **Ανά Μονάδα**: groupby κωδικού στο stat3_1, sum Τμήματα/Αγόρια/Κορίτσια
+- `_auto_find_zip(*prefixes)`: δέχεται πολλαπλά prefixes, ψάχνει .zip → .csv → .xlsx
+- `_read_zip_csv`: χειρίζεται .zip, plain .csv, και .xlsx
+- Δήμοι από stat3_1 col7 (fallback: CSV col6)
+- Email body: αυτόματη αντικατάσταση `{dimos}` στο `_on_dimos_change`
+
+### DownloadDialog (main.py)
+- Checkboxes: ξεκινούν απενεργοποιημένα by default (ο χρήστης επιλέγει)
+- Κουμπί «Όλα» τσεκάρει όλα μαζί
+- Αρχεία που υπάρχουν ήδη εμφανίζονται με ✓ και πράσινο χρώμα
+
 ### downloader.py — REPORTS tuple
-Κάθε entry: `(rid, label, url_path, fname_base, wait_search, wait_dl, direct_export, custom_search?, custom_export?)`
+Κάθε entry: `(rid, label, url_path, fname_base, wait_search, wait_dl, direct_export, custom_search?, custom_export?, pre_search_labels?)`
 - `custom_search`: CSS selector για κουμπί αναζήτησης (π.χ. `'a.hint_search'` για topoth)
-- `custom_export`: CSS selector για κουμπί εξαγωγής (π.χ. `'#ctl00_ContentData_gridResults_StatusBar_btnExport'` για topoth)
+- `custom_export`: CSS selector για κουμπί εξαγωγής
+- `pre_search_labels`: list με κείμενα `<label>` checkboxes που τσεκάρονται πριν την αναζήτηση (χρησιμοποιείται για 3.1)
 - Grid wait: flexible XPath `//*[contains(@id,"DXDataRow0")]` — λειτουργεί για όλες τις σελίδες
+- Αρχεία: 2.2 (stat2_2) = Εκτεταμένα Στοιχεία, 3.1 (stat3_1) = Κατανομή μαθητών
 
 ---
 
@@ -136,7 +158,7 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 Τρέξε μόνο βήματα 3 → 4 → 5 → 6. Το `build_executable.bat` δεν χρειάζεται.
 
 ### Versioning
-- Τρέχουσα: `0.9.4` (beta)
+- Τρέχουσα: `0.9.5` (beta)
 - Stable release: `1.0.0` (μετά από testing)
 - Αλλαγή version: στο `myschool-checks.nsi` (`APP_VERSION`), στο `compile_installer.bat` **και** στο `MySchoolChecks/config.py` (`APP_VERSION`)
 
@@ -182,8 +204,8 @@ gh release create v0.9.0 "myschool-checks-0.9.0-setup.exe" --title "MySchool Che
 - [ ] Beta testing → stable release v1.0.0
 - [ ] MSIX package για Microsoft Store (αναβλήθηκε — χρειάζεται Windows SDK + Partner Center)
 - [ ] Αν χρειαστεί νέα έκδοση: αλλαγή `APP_VERSION` στο `.nsi`, `compile_installer.bat` **και** `config.py`
-- [ ] Επαλήθευση λήψης Τοποθετήσεων με νέα custom search/export selectors (v0.9.4)
-- [ ] Ενημέρωση PDF οδηγού χρήστη (χειροκίνητα με ReportLab)
+- [ ] Επαλήθευση λήψης 3.1 με pre_search_labels (DevExpress checkboxes) — πρώτο run in production
+- [ ] Ενημέρωση PDF οδηγού χρήστη (χειροκίνητα με ReportLab) — να προστεθεί ενότητα Σχολικών Μονάδων
 
 ---
 
